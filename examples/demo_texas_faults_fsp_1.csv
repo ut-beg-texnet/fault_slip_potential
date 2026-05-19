@@ -1,0 +1,2 @@
+FaultID,Latitude(WGS84),Longitude(WGS84),Strike,Dip,LengthKm,FrictionCoefficient
+DEMO_TX_REEVES_NW_ALPHA_SEG_001,31.119345,-103.878615,324.5,66,1.18,0.60

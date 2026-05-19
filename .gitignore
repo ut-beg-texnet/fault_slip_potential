@@ -1,0 +1,6 @@
+fsp_python_venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
+AGENTS.md
