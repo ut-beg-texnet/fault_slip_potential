@@ -1,0 +1,737 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #f8fafc;
+      color: #0f172a;
+      font-family: Inter, Segoe UI, Roboto, Arial, Helvetica, sans-serif;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    .viewer {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #f8fafc;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.45);
+      box-sizing: border-box;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+    }
+    .toolbar-title {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+    .toolbar-status {
+      color: #475569;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .content {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: row;
+      gap: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .plot-panel {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 10px;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.10);
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .plot-stage {
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
+    }
+    .selector-panel {
+      flex: 0 0 clamp(300px, 28vw, 360px);
+      min-width: clamp(300px, 28vw, 360px);
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.10);
+      overflow: hidden;
+    }
+    .selector-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px 6px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.45);
+      flex: 0 0 auto;
+    }
+    .selector-title {
+      font-weight: 700;
+    }
+    .selector-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .selector-tools {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px 6px;
+      flex: 0 0 auto;
+    }
+    .selector-actions {
+      display: inline-flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .selector-note {
+      padding: 0 12px 6px;
+      color: #475569;
+      font-size: 11.5px;
+      line-height: 1.4;
+      flex: 0 0 auto;
+    }
+    .selector-master {
+      padding: 0 12px 6px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.45);
+      flex: 0 0 auto;
+    }
+    .legend-all {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #475569;
+    }
+    .legend-button {
+      font: inherit;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 6px;
+      background: #ffffff;
+      color: #0f172a;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .series-legend {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 6px;
+      box-sizing: border-box;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .legend-item:hover {
+      background: rgba(148, 163, 184, 0.12);
+    }
+    .legend-item input {
+      margin: 0;
+      flex: 0 0 auto;
+    }
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      flex: 0 0 auto;
+    }
+    .legend-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      flex: 1 1 auto;
+    }
+    #plot {
+      width: 100%;
+      height: 100%;
+    }
+    @media (max-width: 780px) {
+      .content {
+        flex-direction: column;
+      }
+      .plot-stage {
+        min-height: 340px;
+      }
+      .plot-panel {
+        flex: 0 0 360px;
+      }
+      .selector-panel {
+        flex: 0 0 260px;
+        min-width: 0;
+      }
+      .selector-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+    @media (max-width: 680px) {
+      .toolbar {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .toolbar-status {
+        width: 100%;
+      }
+    }
+
+    .tab-strip { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .tab-button { font: inherit; font-size: 11.5px; border: 1px solid rgba(148, 163, 184, 0.45); border-radius: 999px;
+      background: #ffffff; color: #475569; padding: 4px 10px; cursor: pointer; }
+    .tab-button.is-active { background: rgba(37, 99, 235, 0.10); color: #0f172a;
+      border-color: rgba(37, 99, 235, 0.28); }
+    .tab-panel { display: none; flex: 1 1 auto; min-height: 0; overflow: hidden; flex-direction: column; }
+    .tab-panel.is-active { display: flex; }
+    .year-tools { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .year-tools label { font-size: 12px; color: #475569; display: flex; flex-direction: column; gap: 4px; }
+    .year-tools input[type="number"], .year-tools input[type="range"] { font: inherit; width: 100%; box-sizing: border-box; }
+    .range-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+    .range-field { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: #475569; }
+    .range-field input { width: 100%; box-sizing: border-box; font: inherit; border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 6px; background: #ffffff; color: #0f172a; padding: 6px 8px; }
+    .colorbar-ramp { height: 8px; border-radius: 999px; border: 1px solid rgba(15, 23, 42, 0.12);
+      background: linear-gradient(90deg, #800000 0%, #ff0000 8%, #ff5a00 18%, #ffc300 28%, #ffff00 35%, #ffff00 67%, #aad400 78%, #61b000 88%, #007f00 100%); }
+    .colorbar-values { display: flex; justify-content: space-between; font-size: 11px; color: #475569; }
+    .control-section { padding: 8px 12px; overflow: auto; }
+    .control-title { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+    .control-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
+    
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <div class="viewer">
+    <div class="toolbar">
+      <div class="toolbar-title">FSP Through Time</div>
+      <div id="selection-summary" class="toolbar-status"></div>
+    </div>
+    <div class="content">
+      <div class="plot-panel">
+        <div class="plot-stage">
+          <div id="plot"></div>
+        </div>
+      </div>
+      <aside class="selector-panel" aria-label="Faults">
+        <div class="selector-header">
+          <div class="selector-title">Controls</div>
+          <div class="tab-strip">
+            <button type="button" id="faults-tab-button" class="tab-button is-active" onclick="switchControlTab('faults')">Fault Curves</button>
+            <button type="button" id="year-tab-button" class="tab-button" onclick="switchControlTab('year')">Year of Interest</button>
+            <button type="button" id="colors-tab-button" class="tab-button" onclick="switchControlTab('colors')">Color Range</button>
+          </div>
+        </div>
+        <div class="selector-body">
+          <section id="faults-tab" class="tab-panel is-active" aria-label="Fault Curves">
+          <div class="selector-tools">
+            <div class="selector-actions">
+              <button type="button" class="legend-button" onclick="setAllSelection(true)">Show All</button>
+              <button type="button" class="legend-button" onclick="setAllSelection(false)">Hide All</button>
+            </div>
+          </div>
+          <div class="selector-note">Use the checkboxes to compare one or more faults. The list stays scrollable so large runs do not crowd the chart.</div>
+          <div class="selector-master">
+            <label class="legend-all">
+              <input type="checkbox" id="legend-all" checked onchange="toggleAllFromMaster(this.checked)">
+              <span>All faults</span>
+            </label>
+          </div>
+          <div id="series-legend" class="series-legend"></div>
+          </section>
+          </section>
+          <section id="year-tab" class="tab-panel" aria-label="Year of Interest">
+            <div class="year-tools">
+              <label>Year of interest
+                <input id="year-of-interest" type="number" step="1" min="2020" max="2021" oninput="handleYearInput()">
+              </label>
+              <input id="year-of-interest-slider" type="range" min="2020" max="2021" step="1" oninput="handleYearSlider()">
+              <div class="legend-note">The green dashed line marks the year of interest on the chart. Changes sync with the paired summary graph.</div>
+            </div>
+          </section>
+          
+          <section id="colors-tab" class="tab-panel" aria-label="Fault Slip Potential Color Range">
+            <div class="control-section">
+              <div class="control-title">Fault Slip Potential</div>
+              <div class="legend-note">Adjust the FSP range used to color the background risk gradient.</div>
+              <div class="colorbar">
+                <div class="colorbar-ramp" aria-hidden="true"></div>
+                <div class="colorbar-values"><span id="colorbar-min">0.00</span><span id="colorbar-max">1.00</span></div>
+              </div>
+              <div class="range-row">
+                <label class="range-field">Min FSP
+                  <input id="fsp-color-min" type="number" step="any" min="0" max="1" oninput="handleFspColorRangeInput()">
+                </label>
+                <label class="range-field">Max FSP
+                  <input id="fsp-color-max" type="number" step="any" min="0" max="1" oninput="handleFspColorRangeInput()">
+                </label>
+              </div>
+              <div class="control-actions">
+                <button type="button" class="legend-button" onclick="resetFspColorRange()">Reset Range</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <script>
+    const title = "FSP Through Time";
+    const seriesPayload = {"1":{"x":[2020,2021],"y":[0.1,0.2],"mode":"lines+markers","hovertemplate":"x","label":"Fault 1","color":"#2563eb"},"2":{"x":[2020,2021],"y":[0.3,0.4],"mode":"lines+markers","hovertemplate":"x","label":"Fault 2","color":"#e11d48"}};
+    const seriesIds = ["1", "2"];
+    const xLabel = "Year";
+    const yLabel = "FSP";
+    const selectorSubjectPlural = "faults";
+    const selectorEmptyMessage = "Select one or more faults from the list to display their curves.";
+    const plotConfig = {"responsive": true, "displaylogo": false, "scrollZoom": true};
+
+    const variant = "fsp";
+    const isFsp = variant === 'fsp';
+    const syncKey = "test-sync";
+    const yearStorageKey = syncKey + ':year';
+    const faultsStorageKey = syncKey + ':faults';
+    const defaultYear = 2020;
+    const yearMin = 2020;
+    const yearMax = 2021;
+    let yearOfInterest = defaultYear;
+    const yRangeFixed = [0, 1];
+    const yTickformat = ".2f";
+    const colorScale = [[0.0,"#800000"],[0.08,"#ff0000"],[0.18,"#ff5a00"],[0.28,"#ffc300"],[0.35,"#ffff00"],[0.67,"#ffff00"],[0.78,"#aad400"],[0.88,"#61b000"],[1.0,"#007f00"]];
+    const scientificColors = ["#2563eb", "#e11d48", "#059669", "#7c3aed", "#d97706", "#0891b2", "#be123c", "#475569"];
+    const baseTitle = title;
+
+    function mixColor(start, end, ratio) {
+      function hexToRgb(hex) {
+        const cleaned = String(hex).replace('#', '');
+        return [
+          parseInt(cleaned.substring(0, 2), 16),
+          parseInt(cleaned.substring(2, 4), 16),
+          parseInt(cleaned.substring(4, 6), 16)
+        ];
+      }
+      const a = hexToRgb(start);
+      const b = hexToRgb(end);
+      return 'rgb(' +
+        Math.round(a[0] + (b[0] - a[0]) * ratio) + ',' +
+        Math.round(a[1] + (b[1] - a[1]) * ratio) + ',' +
+        Math.round(a[2] + (b[2] - a[2]) * ratio) + ')';
+    }
+
+    function scaledFspColor(normalized) {
+      const value = Math.max(0, Math.min(1, normalized));
+      for (let i = 1; i < colorScale.length; i++) {
+        const previous = colorScale[i - 1];
+        const current = colorScale[i];
+        if (value <= current[0]) {
+          const stopSpan = current[0] - previous[0] || 1;
+          return mixColor(previous[1], current[1], (value - previous[0]) / stopSpan);
+        }
+      }
+      return colorScale[colorScale.length - 1][1];
+    }
+
+    function switchControlTab(tabName) {
+      ['faults', 'year', 'colors'].forEach(function(name) {
+        const panel = document.getElementById(name + '-tab');
+        const button = document.getElementById(name + '-tab-button');
+        if (!panel || !button) return;
+        const active = name === tabName;
+        panel.classList.toggle('is-active', active);
+        button.classList.toggle('is-active', active);
+      });
+    }
+
+    function clampYear(value) {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isFinite(parsed)) return defaultYear;
+      return Math.max(yearMin, Math.min(yearMax, parsed));
+    }
+
+    function persistYear() {
+      localStorage.setItem(yearStorageKey, String(yearOfInterest));
+    }
+
+    function persistFaults() {
+      localStorage.setItem(faultsStorageKey, JSON.stringify(Array.from(selectedSeriesIds)));
+    }
+
+    function loadSyncState() {
+      const storedYear = localStorage.getItem(yearStorageKey);
+      if (storedYear !== null) yearOfInterest = clampYear(storedYear);
+      const storedFaults = localStorage.getItem(faultsStorageKey);
+      if (storedFaults !== null) {
+        try {
+          const ids = JSON.parse(storedFaults);
+          if (Array.isArray(ids)) {
+            selectedSeriesIds.clear();
+            ids.forEach(function(seriesId) {
+              if (seriesIds.indexOf(seriesId) >= 0) selectedSeriesIds.add(seriesId);
+            });
+          }
+        } catch (error) {}
+      }
+    }
+
+    function syncControlsFromState() {
+      const yearInput = document.getElementById('year-of-interest');
+      const yearSlider = document.getElementById('year-of-interest-slider');
+      if (yearInput) yearInput.value = String(yearOfInterest);
+      if (yearSlider) yearSlider.value = String(yearOfInterest);
+      document.querySelectorAll('.series-toggle').forEach(function(input) {
+        const item = input.closest('.legend-item');
+        const seriesId = item ? item.getAttribute('data-series-id') : null;
+        if (seriesId) input.checked = selectedSeriesIds.has(seriesId);
+      });
+      updateSummary();
+      if (isFsp) initializeFspColorRange();
+    }
+
+    function onStorageSync(event) {
+      if (!event.key || event.key.indexOf(syncKey) !== 0) return;
+      loadSyncState();
+      syncControlsFromState();
+      renderSeries();
+    }
+
+    function handleYearInput() {
+      const yearInput = document.getElementById('year-of-interest');
+      yearOfInterest = clampYear(yearInput ? yearInput.value : defaultYear);
+      persistYear();
+      syncControlsFromState();
+      renderSeries();
+    }
+
+    function handleYearSlider() {
+      const yearSlider = document.getElementById('year-of-interest-slider');
+      yearOfInterest = clampYear(yearSlider ? yearSlider.value : defaultYear);
+      persistYear();
+      syncControlsFromState();
+      renderSeries();
+    }
+
+    function chartTitle() {
+      const count = selectedSeriesIds.size;
+      if (count === 0) return baseTitle;
+      if (count === seriesIds.length) {
+        return isFsp ? 'All Faults, FSP Through Time' : 'Pressure vs. Time for All Faults';
+      }
+      if (count === 1) {
+        const faultId = Array.from(selectedSeriesIds)[0];
+        return isFsp
+          ? 'FSP through time for Fault #' + faultId
+          : 'Pressure through time on Fault #' + faultId;
+      }
+      return isFsp ? 'FSP through time for Selected Faults' : 'Pressure through time on Selected Faults';
+    }
+
+    function seriesLineColor(seriesId, index, activeCount) {
+      if (activeCount <= 8) return scientificColors[index % scientificColors.length];
+      const series = seriesPayload[seriesId] || {};
+      return series.color || (isFsp ? '#0f172a' : '#2563eb');
+    }
+
+    function buildYearLineShape() {
+      return {
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: yearOfInterest,
+        x1: yearOfInterest,
+        y0: 0,
+        y1: 1,
+        line: { color: '#22c55e', width: 2, dash: 'dash' }
+      };
+    }
+    
+    const fspColorMinKey = syncKey + ':fspColorMin';
+    const fspColorMaxKey = syncKey + ':fspColorMax';
+
+    function initializeFspColorRange() {
+      const minInput = document.getElementById('fsp-color-min');
+      const maxInput = document.getElementById('fsp-color-max');
+      if (!minInput || !maxInput) return;
+      const storedMin = localStorage.getItem(fspColorMinKey);
+      const storedMax = localStorage.getItem(fspColorMaxKey);
+      let minValue = storedMin !== null ? Number.parseFloat(storedMin) : 0;
+      let maxValue = storedMax !== null ? Number.parseFloat(storedMax) : 1;
+      if (!Number.isFinite(minValue)) minValue = 0;
+      if (!Number.isFinite(maxValue)) maxValue = 1;
+      minInput.value = minValue.toFixed(2);
+      maxInput.value = maxValue.toFixed(2);
+      updateFspColorbarLabels();
+    }
+
+    function selectedFspColorRange() {
+      const minInput = document.getElementById('fsp-color-min');
+      const maxInput = document.getElementById('fsp-color-max');
+      if (!minInput || !maxInput) return { minValue: 0, maxValue: 1 };
+      const minValue = Number.parseFloat(minInput.value);
+      const maxValue = Number.parseFloat(maxInput.value);
+      if (Number.isFinite(minValue) && Number.isFinite(maxValue) && maxValue > minValue) {
+        return { minValue: minValue, maxValue: maxValue };
+      }
+      return { minValue: 0, maxValue: 1 };
+    }
+
+    function updateFspColorbarLabels() {
+      const labels = selectedFspColorRange();
+      const minLabel = document.getElementById('colorbar-min');
+      const maxLabel = document.getElementById('colorbar-max');
+      if (minLabel) minLabel.textContent = labels.minValue.toFixed(2);
+      if (maxLabel) maxLabel.textContent = labels.maxValue.toFixed(2);
+    }
+
+    function handleFspColorRangeInput() {
+      const labels = selectedFspColorRange();
+      localStorage.setItem(fspColorMinKey, String(labels.minValue));
+      localStorage.setItem(fspColorMaxKey, String(labels.maxValue));
+      updateFspColorbarLabels();
+      renderSeries();
+    }
+
+    function resetFspColorRange() {
+      localStorage.setItem(fspColorMinKey, '0');
+      localStorage.setItem(fspColorMaxKey, '1');
+      initializeFspColorRange();
+      renderSeries();
+    }
+
+    function buildFspBackgroundShapes(yMin, yMax) {
+      const colorRange = selectedFspColorRange();
+      const bandCount = 40;
+      const shapes = [];
+      for (let i = 0; i < bandCount; i++) {
+        const y0 = yMin + (yMax - yMin) * i / bandCount;
+        const y1 = yMin + (yMax - yMin) * (i + 1) / bandCount;
+        const yMid = (y0 + y1) / 2;
+        const normalized = (yMid - colorRange.minValue) / (colorRange.maxValue - colorRange.minValue || 1);
+        shapes.push({
+          type: 'rect',
+          xref: 'x',
+          yref: 'y',
+          x0: yearMin,
+          x1: yearMax,
+          y0: y0,
+          y1: y1,
+          fillcolor: scaledFspColor(normalized),
+          layer: 'below',
+          line: { width: 0 }
+        });
+      }
+      return shapes;
+    }
+
+    const selectedSeriesIds = new Set(seriesIds);
+
+
+    function updateSummary() {
+      const summary = document.getElementById('selection-summary');
+      summary.textContent = selectedSeriesIds.size + ' of ' + seriesIds.length + ' ' + selectorSubjectPlural + ' visible';
+      const master = document.getElementById('legend-all');
+      if (master) {
+        master.checked = seriesIds.length > 0 && selectedSeriesIds.size === seriesIds.length;
+        master.indeterminate = selectedSeriesIds.size > 0 && selectedSeriesIds.size < seriesIds.length;
+      }
+    }
+
+    function setAllSelection(checked) {
+      selectedSeriesIds.clear();
+      if (checked) {
+        seriesIds.forEach(function(seriesId) {
+          selectedSeriesIds.add(seriesId);
+        });
+      }
+      document.querySelectorAll('.series-toggle').forEach(function(input) {
+        input.checked = checked;
+      });
+      updateSummary();
+      persistFaults();
+      renderSeries();
+    }
+
+    function toggleAllFromMaster(checked) {
+      setAllSelection(checked);
+    }
+
+    function toggleSeries(seriesId, checked) {
+      if (checked) {
+        selectedSeriesIds.add(seriesId);
+      } else {
+        selectedSeriesIds.delete(seriesId);
+      }
+      updateSummary();
+      persistFaults();
+      renderSeries();
+    }
+
+    function populateLegend() {
+      const legend = document.getElementById('series-legend');
+      legend.innerHTML = '';
+      seriesIds.forEach(function(seriesId) {
+        const series = seriesPayload[seriesId] || {};
+        const label = document.createElement('label');
+        label.className = 'legend-item';
+        label.setAttribute('data-series-id', seriesId);
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'series-toggle';
+        checkbox.checked = selectedSeriesIds.has(seriesId);
+        checkbox.addEventListener('change', function() {
+          toggleSeries(seriesId, checkbox.checked);
+        });
+
+        const swatch = document.createElement('span');
+        swatch.className = 'legend-swatch';
+        swatch.style.backgroundColor = series.color || '#2563eb';
+
+        const text = document.createElement('span');
+        text.className = 'legend-label';
+        text.textContent = series.label || seriesId;
+
+        label.appendChild(checkbox);
+        label.appendChild(swatch);
+        label.appendChild(text);
+        legend.appendChild(label);
+      });
+      updateSummary();
+    }
+
+
+    function renderSeries() {
+      const activeSeriesIds = seriesIds.filter(function(seriesId) {
+        return selectedSeriesIds.has(seriesId);
+      });
+      const traces = activeSeriesIds.map(function(seriesId, index) {
+        const series = seriesPayload[seriesId] || {};
+        const color = seriesLineColor(seriesId, index, activeSeriesIds.length);
+        return {
+          x: series.x,
+          y: series.y,
+          mode: series.mode || 'lines+markers',
+          type: 'scatter',
+          name: series.label || seriesId,
+          line: { width: activeSeriesIds.length > 8 ? 2.1 : 2.7, color: color },
+          marker: { size: activeSeriesIds.length > 8 ? 4 : 6, color: color, line: { width: 1, color: '#ffffff' } },
+          hovertemplate: series.hovertemplate || '%{x}<br>%{y}<extra></extra>'
+        };
+      });
+
+      let yMin = 0;
+      let yMax = 1;
+      if (yRangeFixed && Array.isArray(yRangeFixed) && yRangeFixed.length === 2) {
+        yMin = yRangeFixed[0];
+        yMax = yRangeFixed[1];
+      } else {
+        const values = [];
+        activeSeriesIds.forEach(function(seriesId) {
+          const series = seriesPayload[seriesId] || {};
+          (series.y || []).forEach(function(value) { values.push(value); });
+        });
+        if (values.length) {
+          yMin = Math.min.apply(null, values);
+          yMax = Math.max.apply(null, values);
+          const pad = (yMax - yMin) * 0.05 || 1;
+          yMin = Math.max(0, yMin - pad);
+          yMax = yMax + pad;
+        }
+      }
+
+      let shapes = [buildYearLineShape()];
+      if (isFsp && typeof buildFspBackgroundShapes === 'function') {
+        shapes = buildFspBackgroundShapes(yMin, yMax).concat(shapes);
+      }
+
+      const layout = {
+        autosize: true,
+        template: 'plotly_white',
+        margin: { l: 74, r: 34, t: 48, b: 64 },
+        font: { family: 'Inter, Segoe UI, Roboto, Arial, Helvetica, sans-serif', size: 12, color: '#0f172a' },
+        paper_bgcolor: '#ffffff',
+        plot_bgcolor: '#ffffff',
+        showlegend: false,
+        hovermode: 'closest',
+        shapes: shapes,
+        annotations: activeSeriesIds.length ? [] : [{
+          text: 'Select one or more faults from the list to display their curves.',
+          x: 0.5,
+          y: 0.5,
+          xref: 'paper',
+          yref: 'paper',
+          showarrow: false,
+          font: { size: 14, color: '#475569' }
+        }],
+        xaxis: {
+          title: { text: xLabel, standoff: 10, font: { color: '#475569' } },
+          showgrid: true,
+          gridcolor: '#e2e8f0',
+          linecolor: '#e2e8f0',
+          tickcolor: '#e2e8f0',
+          tickfont: { color: '#64748b' },
+          zeroline: false,
+          automargin: true
+        },
+        yaxis: {
+          title: { text: yLabel, standoff: 12, font: { color: '#475569' } },
+          range: [yMin, yMax],
+          tickformat: yTickformat || undefined,
+          showgrid: true,
+          gridcolor: '#e2e8f0',
+          linecolor: '#e2e8f0',
+          tickcolor: '#e2e8f0',
+          tickfont: { color: '#64748b' },
+          zeroline: false,
+          automargin: true
+        }
+      };
+      const toolbarTitle = document.querySelector('.toolbar-title');
+      if (toolbarTitle) toolbarTitle.textContent = chartTitle();
+      Plotly.react(document.getElementById('plot'), traces, layout, plotConfig);
+    }
+
+
+    loadSyncState();
+    syncControlsFromState();
+    populateLegend();
+    renderSeries();
+    window.addEventListener('storage', onStorageSync);
+    window.addEventListener('resize', function() {
+      Plotly.Plots.resize(document.getElementById('plot'));
+    });
+  </script>
+</body>
+</html>

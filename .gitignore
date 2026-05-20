@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .env
 AGENTS.md
+reference_old_code/
+examples/

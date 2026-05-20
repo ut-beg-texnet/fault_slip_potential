@@ -248,7 +248,7 @@ def main():
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_summary_fsp", fault_summary)
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "pressure_through_time_results", pressure_df)
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "fsp_through_time_results", fsp_df)
-        save_summary_artifacts(helper, STEP, fsp_df, pressure_df)
+        save_summary_artifacts(helper, STEP, fsp_df, pressure_df, year_of_interest=year_of_interest)
         save_fault_results_map_artifact(
             helper,
             STEP,

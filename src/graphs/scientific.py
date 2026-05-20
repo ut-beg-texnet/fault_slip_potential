@@ -181,6 +181,12 @@ def _single_series_plotly_html(
     y_range=None,
     x_type: str = "linear",
     y_tickformat: Optional[str] = None,
+    year_of_interest: Optional[float] = None,
+    show_fsp_background: bool = False,
+    show_color_tab: bool = True,
+    color_tab_label: str = "Color Range",
+    default_color_min: Optional[float] = None,
+    default_color_max: Optional[float] = None,
 ):
     title_html = html.escape(title)
     payload_json = json.dumps(series_payload, separators=(",", ":"))
@@ -196,6 +202,37 @@ def _single_series_plotly_html(
     auto_color_min_json = json.dumps(auto_color_min)
     auto_color_max_json = json.dumps(auto_color_max)
     color_scale_json = json.dumps(SLIP_PRESSURE_COLOR_SCALE, separators=(",", ":"))
+    year_of_interest_json = json.dumps(year_of_interest)
+    show_fsp_background_json = json.dumps(show_fsp_background)
+    show_color_tab_json = json.dumps(show_color_tab)
+    # Use explicit defaults when provided; fall back to auto_color_min/max
+    init_color_min = default_color_min if default_color_min is not None else auto_color_min
+    init_color_max = default_color_max if default_color_max is not None else auto_color_max
+    init_color_min_json = json.dumps(init_color_min)
+    init_color_max_json = json.dumps(init_color_max)
+    # Derive input unit label: empty for FSP (0-1), "psi" for pressure
+    color_unit = "" if show_fsp_background else " PSI"
+    color_tab_desc = (
+        "Adjust the FSP range to control the gradient background coloring. Min and max default to 0 and 1."
+        if show_fsp_background
+        else "Adjust the deterministic slip-pressure range to dynamically recolor the CDF curves and legend entries."
+    )
+    color_tab_desc_html = html.escape(color_tab_desc)
+    color_tab_label_html = html.escape(color_tab_label)
+    # Pre-render conditional HTML fragments to avoid complex f-string logic
+    year_toolbar_html = (
+        f'<label class="toolbar-year-control">'
+        f'<span class="toolbar-year-label">Year of Interest</span>'
+        f'<input id="year-input" type="number" class="toolbar-year-input" '
+        f'value="{int(year_of_interest)}" oninput="onYearInput()">'
+        f'</label>'
+    ) if year_of_interest is not None else ""
+    color_tab_button_html = (
+        '<button type="button" id="colors-tab-button" class="tab-button"'
+        ' onclick="switchControlTab(\'colors\')">'
+        + color_tab_label_html
+        + "</button>"
+    ) if show_color_tab else ""
     return f"""<!doctype html>
 <html>
 <head>
@@ -461,6 +498,28 @@ def _single_series_plotly_html(
       width: 100%;
       height: 100%;
     }}
+    .toolbar-year-control {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }}
+    .toolbar-year-label {{
+      font-size: 12.5px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+      white-space: nowrap;
+    }}
+    .toolbar-year-input {{
+      width: 80px;
+      font: inherit;
+      font-size: 13px;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      padding: 4px 8px;
+      box-sizing: border-box;
+    }}
     @media (max-width: 780px) {{
       .plot-stage {{
         min-height: 360px;
@@ -495,6 +554,7 @@ def _single_series_plotly_html(
   <div class="viewer">
     <div class="toolbar">
       <div class="toolbar-title">{title_html}</div>
+      {year_toolbar_html}
       <div id="selection-summary" class="toolbar-status"></div>
     </div>
     <div class="content">
@@ -508,7 +568,7 @@ def _single_series_plotly_html(
           <div class="legend-title">Controls</div>
           <div class="tab-strip">
             <button type="button" id="faults-tab-button" class="tab-button is-active" onclick="switchControlTab('faults')">Fault Curves</button>
-            <button type="button" id="colors-tab-button" class="tab-button" onclick="switchControlTab('colors')">Color Range</button>
+            {color_tab_button_html}
           </div>
         </div>
         <div class="panel-body">
@@ -518,24 +578,27 @@ def _single_series_plotly_html(
                 <input type="checkbox" id="legend-all" checked onchange="toggleAllFromMaster(this.checked)">
                 <span>All faults</span>
               </label>
-              <button type="button" class="legend-button" onclick="setAllSelection(true)">Show All</button>
+              <div style="display:flex;gap:6px;">
+                <button type="button" class="legend-button" onclick="setAllSelection(true)">Show All</button>
+                <button type="button" class="legend-button" onclick="setAllSelection(false)">Clear All</button>
+              </div>
             </div>
             <div class="legend-note">Use the checkboxes to compare one or more faults. The list below is scrollable so large fault runs stay manageable.</div>
             <div id="series-legend" class="series-legend"></div>
           </section>
-          <section id="colors-tab" class="tab-panel" aria-label="Pore Pressure to Slip Color Range">
+          <section id="colors-tab" class="tab-panel" aria-label="{color_tab_label_html} Color Range">
             <div class="control-section">
-              <div class="control-title">Pore Pressure to Slip</div>
-              <div class="legend-note">Adjust the deterministic slip-pressure range to dynamically recolor the CDF curves and legend entries.</div>
+              <div class="control-title">{color_tab_label_html}</div>
+              <div class="legend-note">{color_tab_desc_html}</div>
               <div class="colorbar">
                 <div class="colorbar-ramp" aria-hidden="true"></div>
                 <div class="colorbar-values"><span id="colorbar-min"></span><span id="colorbar-max"></span></div>
               </div>
               <div class="range-row">
-                <label class="range-field">Min PSI
+                <label class="range-field">Min{color_unit}
                   <input id="pressure-min" type="number" step="any" oninput="handleColorRangeInput()">
                 </label>
-                <label class="range-field">Max PSI
+                <label class="range-field">Max{color_unit}
                   <input id="pressure-max" type="number" step="any" oninput="handleColorRangeInput()">
                 </label>
               </div>
@@ -562,6 +625,11 @@ def _single_series_plotly_html(
     const colorScale = {color_scale_json};
     const autoColorMin = {auto_color_min_json};
     const autoColorMax = {auto_color_max_json};
+    const showFspBackground = {show_fsp_background_json};
+    const showColorTab = {show_color_tab_json};
+    const initColorMin = {init_color_min_json};
+    const initColorMax = {init_color_max_json};
+    let currentYearOfInterest = {year_of_interest_json};
     const selectedSeriesIds = new Set(seriesIds.length ? seriesIds : [defaultId]);
 
     function formatPressure(value) {{
@@ -574,10 +642,10 @@ def _single_series_plotly_html(
       const faultsButton = document.getElementById('faults-tab-button');
       const colorsButton = document.getElementById('colors-tab-button');
       const showFaults = tabName === 'faults';
-      faultsTab.classList.toggle('is-active', showFaults);
-      colorsTab.classList.toggle('is-active', !showFaults);
-      faultsButton.classList.toggle('is-active', showFaults);
-      colorsButton.classList.toggle('is-active', !showFaults);
+      if (faultsTab) faultsTab.classList.toggle('is-active', showFaults);
+      if (colorsTab) colorsTab.classList.toggle('is-active', !showFaults);
+      if (faultsButton) faultsButton.classList.toggle('is-active', showFaults);
+      if (colorsButton) colorsButton.classList.toggle('is-active', !showFaults);
     }}
 
     function hexToRgb(hex) {{
@@ -601,23 +669,43 @@ def _single_series_plotly_html(
     function initializeColorRange() {{
       const minInput = document.getElementById('pressure-min');
       const maxInput = document.getElementById('pressure-max');
-      minInput.value = Number.isFinite(autoColorMin) ? Number(autoColorMin).toFixed(3) : '';
-      maxInput.value = Number.isFinite(autoColorMax) ? Number(autoColorMax).toFixed(3) : '';
+      if (!minInput) return;
+      // Prefer explicit initColorMin/Max, fall back to autoColorMin/Max
+      const useMin = Number.isFinite(initColorMin) ? initColorMin : autoColorMin;
+      const useMax = Number.isFinite(initColorMax) ? initColorMax : autoColorMax;
+      minInput.value = Number.isFinite(useMin) ? Number(useMin).toFixed(showFspBackground ? 2 : 3) : '';
+      maxInput.value = Number.isFinite(useMax) ? Number(useMax).toFixed(showFspBackground ? 2 : 3) : '';
       updateColorbarLabels();
     }}
 
     function selectedColorRange() {{
       const minInput = document.getElementById('pressure-min');
       const maxInput = document.getElementById('pressure-max');
+      if (!minInput) return {{ minValue: null, maxValue: null, custom: false }};
       const minValue = Number.parseFloat(minInput.value);
       const maxValue = Number.parseFloat(maxInput.value);
       if (Number.isFinite(minValue) && Number.isFinite(maxValue) && maxValue > minValue) {{
         return {{ minValue: minValue, maxValue: maxValue, custom: true }};
       }}
-      if (Number.isFinite(autoColorMin) && Number.isFinite(autoColorMax) && autoColorMax > autoColorMin) {{
-        return {{ minValue: autoColorMin, maxValue: autoColorMax, custom: false }};
+      // Fall back to init defaults
+      const fbMin = Number.isFinite(initColorMin) ? initColorMin : autoColorMin;
+      const fbMax = Number.isFinite(initColorMax) ? initColorMax : autoColorMax;
+      if (Number.isFinite(fbMin) && Number.isFinite(fbMax) && fbMax > fbMin) {{
+        return {{ minValue: fbMin, maxValue: fbMax, custom: false }};
       }}
       return {{ minValue: null, maxValue: null, custom: false }};
+    }}
+
+    /** Interpolate the colorScale at a normalized 0-1 position. */
+    function interpolateColorScale(scale, t) {{
+      for (let i = 1; i < scale.length; i++) {{
+        if (t <= scale[i][0]) {{
+          const stopSpan = scale[i][0] - scale[i - 1][0] || 1;
+          const ratio = (t - scale[i - 1][0]) / stopSpan;
+          return mixColor(scale[i - 1][1], scale[i][1], ratio);
+        }}
+      }}
+      return scale[scale.length - 1][1];
     }}
 
     function scaledColor(value) {{
@@ -628,30 +716,84 @@ def _single_series_plotly_html(
       }}
       const span = colorRange.maxValue - colorRange.minValue || 1;
       const normalized = Math.max(0, Math.min(1, (raw - colorRange.minValue) / span));
-      for (let i = 1; i < colorScale.length; i++) {{
-        const previous = colorScale[i - 1];
-        const current = colorScale[i];
-        if (normalized <= current[0]) {{
-          const stopSpan = current[0] - previous[0] || 1;
-          return mixColor(previous[1], current[1], (normalized - previous[0]) / stopSpan);
-        }}
-      }}
-      return colorScale[colorScale.length - 1][1];
+      return interpolateColorScale(colorScale, normalized);
     }}
 
     function currentSeriesColor(series) {{
+      // On FSP background graphs all curves are plotted in dark so they
+      // stand out against the colored background.
+      if (showFspBackground) return '#1e293b';
       if (Number.isFinite(series.detSlipPressure)) {{
         return scaledColor(series.detSlipPressure);
       }}
       return series.color || '#2563eb';
     }}
 
+    /** Build 50 thin background rect shapes spanning the y-axis gradient. */
+    function buildBackgroundShapes() {{
+      if (!showFspBackground) return [];
+      const colorRange = selectedColorRange();
+      if (colorRange.minValue === null) return [];
+      const N = 50;
+      const shapes = [];
+      const span = colorRange.maxValue - colorRange.minValue;
+      for (let i = 0; i < N; i++) {{
+        const t0 = i / N;
+        const t1 = (i + 1) / N;
+        const y0 = colorRange.minValue + span * t0;
+        const y1 = colorRange.minValue + span * t1;
+        shapes.push({{
+          type: 'rect',
+          xref: 'paper',
+          yref: 'y',
+          x0: 0, x1: 1,
+          y0: y0, y1: y1,
+          fillcolor: interpolateColorScale(colorScale, (t0 + t1) / 2),
+          opacity: 0.82,
+          line: {{ width: 0 }},
+          layer: 'below'
+        }});
+      }}
+      return shapes;
+    }}
+
+    /** Build a vertical dashed line shape for the year of interest. */
+    function buildYearLine() {{
+      if (currentYearOfInterest === null || !Number.isFinite(currentYearOfInterest)) return [];
+      return [{{
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: currentYearOfInterest,
+        x1: currentYearOfInterest,
+        y0: 0,
+        y1: 1,
+        line: {{ color: '#16a34a', width: 2, dash: 'dot' }}
+      }}];
+    }}
+
+    /** Move the year-of-interest line when the toolbar input changes. */
+    function onYearInput() {{
+      const val = Number.parseFloat(document.getElementById('year-input').value);
+      currentYearOfInterest = Number.isFinite(val) ? val : null;
+      renderSeries();
+    }}
+
+    function formatColorValue(value) {{
+      if (!Number.isFinite(value)) return '';
+      // FSP background mode: dimensionless 0-1 values; otherwise show "psi"
+      return showFspBackground
+        ? value.toLocaleString(undefined, {{ maximumFractionDigits: 2 }})
+        : formatPressure(value);
+    }}
+
     function updateColorbarLabels() {{
       const colorRange = selectedColorRange();
-      document.getElementById('colorbar-min').textContent =
-        colorRange.minValue !== null ? formatPressure(colorRange.minValue) : '';
-      document.getElementById('colorbar-max').textContent =
-        colorRange.maxValue !== null ? formatPressure(colorRange.maxValue) : '';
+      const minEl = document.getElementById('colorbar-min');
+      const maxEl = document.getElementById('colorbar-max');
+      if (!minEl) return;
+      minEl.textContent = colorRange.minValue !== null ? formatColorValue(colorRange.minValue) : '';
+      maxEl.textContent = colorRange.maxValue !== null ? formatColorValue(colorRange.maxValue) : '';
     }}
 
     function handleColorRangeInput() {{
@@ -813,7 +955,8 @@ def _single_series_plotly_html(
           tickfont: {{ color: '{MODERN_AXIS_COLOR}' }},
           zeroline: false,
           automargin: true
-        }}
+        }},
+        shapes: [...buildBackgroundShapes(), ...buildYearLine()]
       }};
       Plotly.react(document.getElementById('plot'), traces, layout, plotConfig);
     }}
@@ -1040,18 +1183,34 @@ def _multi_curve_selector_plotly_html(
         flex-direction: column;
       }}
       .plot-stage {{
-        min-height: 340px;
+        min-height: 260px;
       }}
       .plot-panel {{
-        flex: 0 0 360px;
+        flex: 1 1 55%;
+        min-height: 260px;
+        max-height: 62%;
       }}
       .selector-panel {{
-        flex: 0 0 260px;
+        flex: 1 1 45%;
+        min-height: 200px;
         min-width: 0;
+        width: 100%;
       }}
       .selector-header {{
         align-items: flex-start;
         flex-direction: column;
+      }}
+      .selector-note {{
+        padding-bottom: 4px;
+      }}
+      .legend-item {{
+        padding: 7px 8px;
+      }}
+      .series-legend {{
+        flex: 1 1 auto;
+        min-height: 140px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }}
     }}
     @media (max-width: 680px) {{
@@ -1310,6 +1469,7 @@ def save_cdf_artifact(
             auto_color_max=auto_color_max,
             y_range=[0, 1],
             y_tickformat=".2f",
+            color_tab_label="Pore Pressure to Slip",
         )
         return _write_html_artifact(
             helper,
@@ -2147,7 +2307,7 @@ def save_radial_curves_artifact(helper, step_index: int, radial_df: pd.DataFrame
             html_text=html_text,
             caption="Interactive deterministic hydrology radial pressure chart generated by FSP.",
             display_order=40,
-            preferred_height=620,
+            preferred_height=800,
         )
     except Exception as exc:
         add_graph_warning(helper, step_index, f"{prefix}: {exc}")
@@ -2200,7 +2360,14 @@ def save_slip_potential_artifact(helper, step_index: int, slip_df: pd.DataFrame)
         return None
 
 
-def save_summary_artifacts(helper, step_index: int, fsp_df: pd.DataFrame, pressure_df: pd.DataFrame):
+def save_summary_artifacts(
+    helper,
+    step_index: int,
+    fsp_df: pd.DataFrame,
+    pressure_df: pd.DataFrame,
+    year_of_interest: Optional[float] = None,
+):
+    """Save FSP Through Time and Pressure Through Time graph artifacts for Step 6."""
     save_time_series_artifact(
         helper,
         step_index,
@@ -2211,6 +2378,12 @@ def save_summary_artifacts(helper, step_index: int, fsp_df: pd.DataFrame, pressu
         y_label="Fault Slip Probability",
         display_order=60,
         y_range=[0, 1],
+        show_fsp_background=True,
+        show_color_tab=True,
+        color_tab_label="FSP Range",
+        default_color_min=0.0,
+        default_color_max=1.0,
+        year_of_interest=year_of_interest,
     )
     save_time_series_artifact(
         helper,
@@ -2222,6 +2395,9 @@ def save_summary_artifacts(helper, step_index: int, fsp_df: pd.DataFrame, pressu
         y_label="Pressure Change (psi)",
         display_order=61,
         y_range=None,
+        show_fsp_background=False,
+        show_color_tab=False,
+        year_of_interest=year_of_interest,
     )
 
 
@@ -2236,7 +2412,14 @@ def save_time_series_artifact(
     y_label: str,
     display_order: int,
     y_range,
+    show_fsp_background: bool = False,
+    show_color_tab: bool = True,
+    color_tab_label: str = "Color Range",
+    default_color_min: Optional[float] = None,
+    default_color_max: Optional[float] = None,
+    year_of_interest: Optional[float] = None,
 ):
+    """Build and register an interactive time-series graph artifact."""
     prefix = _warn_prefix(title)
     try:
         remove_step_messages(helper, step_index, prefix)
@@ -2268,6 +2451,12 @@ def save_time_series_artifact(
             y_label=y_label,
             y_range=y_range,
             y_tickformat=".2f" if y_range is not None else None,
+            show_fsp_background=show_fsp_background,
+            show_color_tab=show_color_tab,
+            color_tab_label=color_tab_label,
+            default_color_min=default_color_min,
+            default_color_max=default_color_max,
+            year_of_interest=year_of_interest,
         )
         return _write_html_artifact(
             helper,

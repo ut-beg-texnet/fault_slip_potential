@@ -336,12 +336,18 @@ class TestScientificGraphArtifacts:
         assert "flex-direction: row;" in html
         assert "flex: 0 0 clamp(300px, 28vw, 360px);" in html
         assert "overflow-y: auto;" in html
+        assert "@media (max-width: 780px)" in html
+        assert "flex: 1 1 55%;" in html
+        assert "flex: 1 1 45%;" in html
+        assert "min-height: 140px;" in html
+        assert "flex: 1 1 auto;" in html
+        assert "flex: 0 0 260px;" not in html
         assert "showlegend: false" in html
         assert "Well: Well WELL_A" in html
         assert "Plotly.react" in html
         assert "All wells" in html
         assert "No wells" not in html
-        assert helper.artifacts[0]["preferredHeight"] == 620
+        assert helper.artifacts[0]["preferredHeight"] == 800
 
     def test_cdf_artifact_contains_fault_filter_controls(self, tmp_path):
         helper = _FakeHelper(tmp_path)
