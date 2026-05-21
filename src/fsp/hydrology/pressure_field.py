@@ -23,15 +23,11 @@ def well_fault_distances_m(well_data_list, fault_lats, fault_lons):
     well_data_list order, so callers can reuse the matrix across years and
     Monte Carlo samples.
     """
-    fault_lats = np.asarray(fault_lats, dtype=float)
-    fault_lons = np.asarray(fault_lons, dtype=float)
-    distances = np.empty((len(well_data_list), len(fault_lats)), dtype=float)
-    for wi, wd in enumerate(well_data_list):
-        distances[wi, :] = (
-            haversine_distance(fault_lats, fault_lons, wd.latitude, wd.longitude)
-            * 1000.0
-        )
-    return distances
+    fault_lats = np.asarray(fault_lats, dtype=float)[np.newaxis, :]   # (1, n_faults)
+    fault_lons = np.asarray(fault_lons, dtype=float)[np.newaxis, :]
+    well_lats = np.array([wd.latitude for wd in well_data_list])[:, np.newaxis]  # (n_wells, 1)
+    well_lons = np.array([wd.longitude for wd in well_data_list])[:, np.newaxis]
+    return haversine_distance(fault_lats, fault_lons, well_lats, well_lons) * 1000.0
 
 
 def pfieldcalc_all_rates(lat_grid, lon_grid, STRho, days, bpds,

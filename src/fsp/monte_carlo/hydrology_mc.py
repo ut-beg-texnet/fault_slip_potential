@@ -106,59 +106,68 @@ def run_hydrology_mc_time_series(hydro_params, well_data_list,
         for i in range(n_sims)
     )
 
+    n_faults = len(fault_ids)
     mode = str(result_mode or "raw").lower()
+
     if mode == "mean":
-        rows = []
+        # Accumulate per-year mean pressures across all simulations
+        year_pressures = {}
         for yr in years:
-            total = np.zeros(len(fault_ids), dtype=float)
+            total = np.zeros(n_faults, dtype=float)
             count = 0
             for sim_result in sim_results:
                 pressures = sim_result.get(yr)
-                if pressures is None:
-                    continue
-                total += pressures
-                count += 1
-            if count == 0:
-                continue
-            mean_pressure = total / float(count)
-            rows.extend({
-                "ID": fid,
-                "Pressure": float(mean_pressure[fi]),
-                "Year": int(yr),
-            } for fi, fid in enumerate(fault_ids))
-        results_df = pd.DataFrame(rows)
+                if pressures is not None:
+                    total += pressures
+                    count += 1
+            if count > 0:
+                year_pressures[yr] = total / float(count)
+
+        valid_years = sorted(year_pressures.keys())
+        n_years = len(valid_years)
+        if n_years > 0:
+            pressure_2d = np.column_stack([year_pressures[yr] for yr in valid_years])  # (n_faults, n_years)
+            results_df = pd.DataFrame({
+                "ID": np.tile(fault_ids, n_years),
+                "Pressure": pressure_2d.T.ravel(),
+                "Year": np.repeat(valid_years, n_faults),
+            })
+        else:
+            results_df = pd.DataFrame(columns=["ID", "Pressure", "Year"])
+
     else:
         years_to_emit = years
         if mode == "year_samples":
             selected_year = int(sample_year) if sample_year is not None else years[-1]
             years_to_emit = [selected_year] if selected_year in years else years[-1:]
 
-        rows = []
+        n_years = len(years_to_emit)
+        # Stack sim_results into a 3D array: (n_sims, n_years, n_faults)
+        pressure_3d = np.zeros((n_sims, n_years, n_faults), dtype=float)
         for sim_i, sim_result in enumerate(sim_results):
-            for yr in years_to_emit:
+            for yi, yr in enumerate(years_to_emit):
                 pressures = sim_result.get(yr)
-                if pressures is None:
-                    continue
-                rows.extend({
-                    "SimulationID": sim_i + 1,
-                    "ID": fid,
-                    "Pressure": float(pressures[fi]),
-                    "Year": int(yr),
-                } for fi, fid in enumerate(fault_ids))
-        results_df = pd.DataFrame(rows)
+                if pressures is not None:
+                    pressure_3d[sim_i, yi, :] = pressures
+
+        # Build column arrays via broadcasting
+        results_df = pd.DataFrame({
+            "SimulationID": np.repeat(np.arange(1, n_sims + 1), n_years * n_faults),
+            "ID": np.tile(np.tile(fault_ids, n_years), n_sims),
+            "Pressure": pressure_3d.ravel(),
+            "Year": np.tile(np.repeat(years_to_emit, n_faults), n_sims),
+        })
 
     if return_sample_inputs:
-        sample_rows = []
-        for sim_i in range(n_sims):
-            sample_rows.append({
-                "SimulationID": sim_i + 1,
-                "aquifer_thickness": float(h_samples[sim_i]),
-                "porosity": float(phi_samples[sim_i]),
-                "permeability": float(kap_samples[sim_i]),
-                "fluid_density": float(rho_samples[sim_i]),
-                "dynamic_viscosity": float(mu_samples[sim_i]),
-                "fluid_compressibility": float(beta_samples[sim_i]),
-                "rock_compressibility": float(alphav_samples[sim_i]),
-            })
-        return results_df, pd.DataFrame(sample_rows)
+        sample_inputs_df = pd.DataFrame({
+            "SimulationID": np.arange(1, n_sims + 1),
+            "aquifer_thickness": h_samples,
+            "porosity": phi_samples,
+            "permeability": kap_samples,
+            "fluid_density": rho_samples,
+            "dynamic_viscosity": mu_samples,
+            "fluid_compressibility": beta_samples,
+            "rock_compressibility": alphav_samples,
+        })
+        return results_df, sample_inputs_df
     return results_df

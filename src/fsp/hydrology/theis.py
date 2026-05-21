@@ -80,24 +80,23 @@ def pressureScenario_Rall(bpds, days, r_meters, STRho, evaluation_days=None):
     dQ[1:] = Q_m3s[1:] - Q_m3s[:-1]
 
     r2 = r_meters.ravel() ** 2
-    tstep_sum = np.zeros(len(r2), dtype=float)
-
     inv_4T = 1.0 / (4.0 * T)
 
-    for i in range(n):
-        if dQ[i] == 0.0:
-            continue
-        t_i_sec = float(days[i]) * 86400.0
-        dt = t_final_sec - t_i_sec
-        if dt <= 0.0:
-            continue
-        coeff = S * inv_4T / dt
-        u = r2 * coeff
-        wf = scipy_e1(u)
-        tstep_sum += wf * dQ[i]
+    # Pre-filter to valid steps (non-zero rate change, positive elapsed time)
+    dt_all = t_final_sec - days * 86400.0
+    valid = (dQ != 0.0) & (dt_all > 0.0)
 
-    inv_4piT = 1.0 / (4.0 * np.pi * T)
-    dp_psi = tstep_sum * inv_4piT * (rho * _G / 6894.76)
+    if not np.any(valid):
+        dp_psi = np.zeros(len(r2), dtype=float)
+    else:
+        dQ_v = dQ[valid]
+        coeffs = S * inv_4T / dt_all[valid]              # (n_valid,)
+        u_2d = r2[:, np.newaxis] * coeffs[np.newaxis, :] # (n_radii, n_valid)
+        wf_2d = scipy_e1(u_2d)                           # single scipy call
+        tstep_sum = wf_2d @ dQ_v                          # matrix-vector product → (n_radii,)
+
+        inv_4piT = 1.0 / (4.0 * np.pi * T)
+        dp_psi = tstep_sum * inv_4piT * (rho * _G / 6894.76)
 
     dp_psi = np.where(np.isfinite(dp_psi) & (dp_psi > 0.0), dp_psi, 0.0)
 

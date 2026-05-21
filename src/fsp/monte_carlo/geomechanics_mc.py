@@ -148,74 +148,122 @@ def run_geomechanics_mc(stress_inputs: dict, faults_df: pd.DataFrame,
     else:
         mu_mc = np.full(n_sims, friction_coefficient)
 
-    # ---- Run MC: vectorised over simulations for each fault ----
-    pps_to_slip = np.zeros((n_faults, n_sims), dtype=float)
+    # ---- Run MC ----
     ref_depth = float(stress_inputs["reference_depth"])
+    _DEG2RAD = np.pi / 180.0
 
-    for sim_i in range(n_sims):
-        sim_stress = dict(stress_inputs)
-        sim_stress["vertical_stress"] = sv_samples[sim_i]
-        sim_stress["pore_pressure"] = pp_samples[sim_i]
-        sim_stress["max_stress_azimuth"] = az_samples[sim_i]
+    if stress_model_type in ("gradients", "all_gradients"):
+        # Fully vectorized path: compute all (n_faults × n_sims) at once
+        # Stress state arrays — shape (1, n_sims) for broadcasting with (n_faults, n_sims) fault arrays
+        sV = np.round(sv_samples * ref_depth, 4)[np.newaxis, :]
+        p0 = np.round(pp_samples * ref_depth, 4)[np.newaxis, :]
+        sH = np.round(sH_grad_samples * ref_depth, 2)[np.newaxis, :]
+        sh = np.round(sh_samples * ref_depth, 2)[np.newaxis, :]
+        az_rad = az_samples[np.newaxis, :] * _DEG2RAD
 
-        if stress_model_type in ("gradients", "all_gradients"):
-            sim_stress["min_horizontal_stress"] = sh_samples[sim_i]
-            sim_stress["max_horizontal_stress"] = sH_grad_samples[sim_i]
-        elif stress_model_type == "aphi_min":
-            sim_stress["min_horizontal_stress"] = sh_samples[sim_i]
-            sim_stress["aphi_value"] = aphi_samples[sim_i]
-        else:
-            sim_stress["aphi_value"] = aphi_samples[sim_i]
-            sim_stress.pop("min_horizontal_stress", None)
+        # Fault geometry — shape (n_faults, n_sims)
+        str_rad = strikes_mc * _DEG2RAD
+        dip_rad = dips_mc * _DEG2RAD
 
-        stress_state_obj, p0_abs = calculate_absolute_stresses(
-            sim_stress, friction_coefficient, stress_model_type
+        cos_az = np.cos(az_rad)
+        sin_az = np.sin(az_rad)
+        sd = np.sin(dip_rad)
+        cs = np.cos(str_rad)
+        ss = np.sin(str_rad)
+
+        s11 = sh * cos_az**2 + sH * sin_az**2 - p0
+        s22 = sh * sin_az**2 + sH * cos_az**2 - p0
+        s33 = sV - p0
+        s12 = (sH - sh) * cos_az * sin_az
+
+        n1 = sd * cs
+        n2 = -sd * ss
+        n1_sq = n1**2
+        n2_sq = n2**2
+        n1_n2 = n1 * n2
+        n1_cubed = n1**3
+        s11_s33 = s11 - s33
+        s22_s33 = s22 - s33
+
+        sqrt_arg = (
+            n2_sq * (s12**2 - (-1.0 + n2_sq) * s22_s33**2)
+            - n1_sq * n1_sq * s11_s33**2
+            + 4.0 * n1_cubed * n2 * s12 * (-s11_s33)
+            + 2.0 * n1_n2 * s12 * (s11 + s22 - 2.0 * n2_sq * s22 + 2.0 * (-1.0 + n2_sq) * s33)
+            + n1_sq * (
+                s11**2
+                + (1.0 - 4.0 * n2_sq) * s12**2
+                - 2.0 * s11 * (n2_sq * s22_s33 + s33)
+                + s33 * (2.0 * n2_sq * s22_s33 + s33)
+            )
         )
+        sig = np.maximum(2.0 * n1_n2 * s12 + n1_sq * s11_s33 + n2_sq * s22_s33 + s33, 0.0)
+        tau = np.sqrt(np.maximum(sqrt_arg, 0.0))
 
-        # All faults at once for this simulation
-        s_vec = strikes_mc[:, sim_i]
-        d_vec = dips_mc[:, sim_i]
-        dp_vec = np.zeros(n_faults)
+        # ComputeCriticalPorePressureForFailure — vectorized (n_faults, n_sims)
+        mu_2d = mu_mc[np.newaxis, :]
+        mobmu = np.where(sig > 0.0, np.abs(tau / np.maximum(sig, 1e-30)), mu_2d)
+        pps_to_slip = np.where(mobmu < mu_2d, ((mu_2d - mobmu) / mu_2d) * np.abs(sig), 0.0)
 
-        sig, tau, *_ = calculate_fault_effective_stresses(
-            s_vec, d_vec, stress_state_obj, p0_abs, dp_vec
-        )
+    else:
+        # APhi models: per-simulation loop (vectorized over faults within each sim)
+        pps_to_slip = np.zeros((n_faults, n_sims), dtype=float)
+        for sim_i in range(n_sims):
+            sim_stress = dict(stress_inputs)
+            sim_stress["vertical_stress"] = sv_samples[sim_i]
+            sim_stress["pore_pressure"] = pp_samples[sim_i]
+            sim_stress["max_stress_azimuth"] = az_samples[sim_i]
 
-        mu_sim = mu_mc[sim_i]
-        pp = ComputeCriticalPorePressureForFailure(sig, tau, mu_sim, p0_abs)
-        pps_to_slip[:, sim_i] = pp
+            if stress_model_type == "aphi_min":
+                sim_stress["min_horizontal_stress"] = sh_samples[sim_i]
+                sim_stress["aphi_value"] = aphi_samples[sim_i]
+            else:
+                sim_stress["aphi_value"] = aphi_samples[sim_i]
+                sim_stress.pop("min_horizontal_stress", None)
+
+            stress_state_obj, p0_abs = calculate_absolute_stresses(
+                sim_stress, friction_coefficient, stress_model_type
+            )
+
+            sig, tau, *_ = calculate_fault_effective_stresses(
+                strikes_mc[:, sim_i], dips_mc[:, sim_i],
+                stress_state_obj, p0_abs, np.zeros(n_faults),
+            )
+            pps_to_slip[:, sim_i] = ComputeCriticalPorePressureForFailure(
+                sig, tau, mu_mc[sim_i], p0_abs
+            )
 
     # ---- Build result DataFrame ----
     fault_ids = faults_df["FaultID"].astype(str).values
-    rows = []
-    sample_rows = [] if return_sample_inputs else None
-    for fi in range(n_faults):
-        for si in range(n_sims):
-            rows.append({
-                "SimulationID": si + 1,
-                "FaultID": fault_ids[fi],
-                "SlipPressure": float(pps_to_slip[fi, si]),
-            })
-            if return_sample_inputs:
-                sample_row = {
-                    "SimulationID": si + 1,
-                    "FaultID": fault_ids[fi],
-                    "vertical_stress_gradient": float(sv_samples[si]),
-                    "initial_pore_pressure_gradient": float(pp_samples[si]),
-                    "max_stress_azimuth": float(az_samples[si]),
-                    "friction_coefficient": float(mu_mc[si]),
-                    "strike_angle": float(strikes_mc[fi, si]),
-                    "dip_angle": float(dips_mc[fi, si]),
-                }
-                if sH_grad_samples is not None:
-                    sample_row["max_horizontal_stress_gradient"] = float(sH_grad_samples[si])
-                if sh_samples is not None:
-                    sample_row["min_horizontal_stress_gradient"] = float(sh_samples[si])
-                if aphi_samples is not None:
-                    sample_row["aphi_value"] = float(aphi_samples[si])
-                sample_rows.append(sample_row)
 
-    results_df = pd.DataFrame(rows)
-    if return_sample_inputs:
-        return results_df, pd.DataFrame(sample_rows)
-    return results_df
+    # pps_to_slip is (n_faults, n_sims) — flatten in fault-major order
+    sim_ids = np.tile(np.arange(1, n_sims + 1), n_faults)
+    fid_col = np.repeat(fault_ids, n_sims)
+    results_df = pd.DataFrame({
+        "SimulationID": sim_ids,
+        "FaultID": fid_col,
+        "SlipPressure": pps_to_slip.ravel(),
+    })
+
+    if not return_sample_inputs:
+        return results_df
+
+    # Sample inputs: per-sim stress values tiled across faults, per-fault geometry values repeated
+    sample_data = {
+        "SimulationID": sim_ids,
+        "FaultID": fid_col,
+        "vertical_stress_gradient": np.tile(sv_samples, n_faults),
+        "initial_pore_pressure_gradient": np.tile(pp_samples, n_faults),
+        "max_stress_azimuth": np.tile(az_samples, n_faults),
+        "friction_coefficient": np.tile(mu_mc, n_faults),
+        "strike_angle": strikes_mc.ravel(),
+        "dip_angle": dips_mc.ravel(),
+    }
+    if sH_grad_samples is not None:
+        sample_data["max_horizontal_stress_gradient"] = np.tile(sH_grad_samples, n_faults)
+    if sh_samples is not None:
+        sample_data["min_horizontal_stress_gradient"] = np.tile(sh_samples, n_faults)
+    if aphi_samples is not None:
+        sample_data["aphi_value"] = np.tile(aphi_samples, n_faults)
+
+    return results_df, pd.DataFrame(sample_data)

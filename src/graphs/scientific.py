@@ -2181,18 +2181,21 @@ def _histogram_panels_for_fault(
     fault_id: str,
     specs
 ):
-    sample_fault_df = sample_inputs_df[sample_inputs_df["FaultID"].astype(str) == fault_id].copy()
-    result_fault_df = mc_results_df[mc_results_df["FaultID"].astype(str) == fault_id].copy()
+    sample_fault_df = sample_inputs_df
+    result_fault_df = mc_results_df
 
     panels = []
     for column, title, unit in specs:
+        if column not in sample_fault_df.columns:
+            continue
         values = pd.to_numeric(sample_fault_df[column], errors="coerce").dropna()
         if not values.empty:
             panels.append({"title": title, "unit": unit, "values": values})
 
-    slip_values = pd.to_numeric(result_fault_df["SlipPressure"], errors="coerce").dropna()
-    if not slip_values.empty:
-        panels.append({"title": f"result: pore pressure to slip for fault {fault_id}", "unit": "[PSI]", "values": slip_values})
+    if "SlipPressure" in result_fault_df.columns:
+        slip_values = pd.to_numeric(result_fault_df["SlipPressure"], errors="coerce").dropna()
+        if not slip_values.empty:
+            panels.append({"title": f"result: pore pressure to slip for fault {fault_id}", "unit": "[PSI]", "values": slip_values})
 
     return panels
 
@@ -2603,8 +2606,15 @@ def save_input_distribution_histograms_artifact(
             add_graph_warning(helper, step_index, f"{prefix} because no fault-specific histogram data were available.")
             return None
 
+        input_groups = {str(fid): group for fid, group in graph_inputs.groupby("FaultID", sort=False)}
+        result_groups = {str(fid): group for fid, group in graph_results.groupby("FaultID", sort=False)}
+        _empty_df = pd.DataFrame()
         fault_figures = {
-            fault_id: _figure_json_for_fault(graph_inputs, graph_results, fault_id, specs, bins)
+            fault_id: _figure_json_for_fault(
+                input_groups.get(fault_id, _empty_df),
+                result_groups.get(fault_id, _empty_df),
+                fault_id, specs, bins,
+            )
             for fault_id in fault_ids
         }
         metadata_labels = []
