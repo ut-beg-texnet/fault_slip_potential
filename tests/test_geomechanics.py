@@ -30,6 +30,7 @@ from fsp_step3 import (
 from graphs.scientific import (
     save_cdf_artifact,
     save_input_distribution_histograms_artifact,
+    save_probabilistic_hydrology_cdf_artifact,
     save_radial_curves_artifact,
     save_uncertainty_tornado_artifact,
 )
@@ -407,6 +408,53 @@ class TestScientificGraphArtifacts:
         assert "detSlipPressure" in html
         assert "const autoColorMin = 100.0" in html
         assert "const autoColorMax = 300.0" in html
+        assert "@media (max-width: 780px)" in html
+        assert "Inter, Segoe UI" in html
+        assert "Plotly.react" in html
+        assert helper.artifacts[0]["preferredHeight"] == 700
+
+    def test_probabilistic_hydrology_cdf_artifact_contains_hydrology_and_geomechanics_curves(self, tmp_path):
+        helper = _FakeHelper(tmp_path)
+        hydrology_cdf_df = pd.DataFrame({
+            "ID": ["A", "A", "B", "B"],
+            "slip_pressure": [5.0, 25.0, 10.0, 30.0],
+            "probability": [0.5, 0.0, 0.5, 0.0],
+        })
+        geomechanics_cdf_df = pd.DataFrame({
+            "ID": ["A", "A", "B", "B"],
+            "slip_pressure": [10.0, 20.0, 15.0, 35.0],
+            "probability": [0.5, 1.0, 0.5, 1.0],
+        })
+
+        path = save_probabilistic_hydrology_cdf_artifact(
+            helper,
+            0,
+            hydrology_cdf_df,
+            geomechanics_cdf_df,
+            artifact_key="fsp-probabilistic-hydrology-cdf",
+            title="Probabilistic Hydrology CDF",
+            display_order=50,
+        )
+
+        html = open(path, encoding="utf-8").read()
+        assert helper.artifacts[0]["key"] == "fsp-probabilistic-hydrology-cdf"
+        assert helper.artifacts[0]["title"] == "Probabilistic Hydrology CDF"
+        assert helper.artifacts[0]["displayOrder"] == 50
+        assert helper.artifacts[0]["renderer"] == "html"
+        assert "Hydrology pressure exceedance" in html
+        assert "Geomechanics fault-slip CDF" in html
+        assert "dash: 'dash'" in html
+        assert "series-legend" in html
+        assert "selected-summary" in html
+        assert "Sort by FSP" in html
+        assert "Sort by max pressure" in html
+        assert "Sort by P50 slip pressure" in html
+        assert "Selected Only" in html
+        assert "Hyd P50" in html
+        assert "Geo P90" in html
+        assert "showlegend: false" in html
+        assert "const selectedSeriesIds = new Set(defaultId ? [defaultId]" in html
+        assert "FSP " in html
         assert "@media (max-width: 780px)" in html
         assert "Inter, Segoe UI" in html
         assert "Plotly.react" in html

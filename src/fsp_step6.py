@@ -60,12 +60,25 @@ def _interpolate_cdf(pressures, probs, target_p: float) -> float:
     return float(q0 + t * (q1 - q0))
 
 
+def _empirical_geomechanics_probabilities(geo_pressures, hydro_pressures) -> np.ndarray:
+    """Evaluate P(geomechanics slip pressure <= hydrology pressure)."""
+    geo = np.asarray(geo_pressures, dtype=float)
+    hydro = np.asarray(hydro_pressures, dtype=float)
+    geo = np.sort(geo[np.isfinite(geo)])
+    hydro = hydro[np.isfinite(hydro)]
+    if len(hydro) == 0:
+        return np.array([], dtype=float)
+    if len(geo) == 0:
+        return np.zeros(len(hydro), dtype=float)
+    return np.searchsorted(geo, hydro, side="right").astype(float) / float(len(geo))
+
+
 def _calculate_fsp(geo_cdf_df: pd.DataFrame,
                    hydro_df: pd.DataFrame) -> pd.DataFrame:
     """Compute FSP per fault per year.
 
     geo_cdf_df: columns ID, slip_pressure, probability (cumulative CDF of Δp to slip)
-    hydro_df: columns ID, Pressure, Year (MC or deterministic pressures)
+    hydro_df: columns ID, Pressure, Year (MC sample or deterministic pressures)
 
     Returns DataFrame with columns: ID, Year, FSP, epoch_time
     """
@@ -91,8 +104,12 @@ def _calculate_fsp(geo_cdf_df: pd.DataFrame,
             mean_p = float(np.mean(fault_pressures))
 
             geo_p = fault_geo["slip_pressure"].values.astype(float)
-            geo_prob = fault_geo["probability"].values.astype(float)
-            fsp = _interpolate_cdf(geo_p, geo_prob, mean_p)
+            if "SimulationID" in fault_pressures_df.columns:
+                fsp_values = _empirical_geomechanics_probabilities(geo_p, fault_pressures)
+                fsp = float(fsp_values.mean()) if len(fsp_values) else 0.0
+            else:
+                geo_prob = fault_geo["probability"].values.astype(float)
+                fsp = _interpolate_cdf(geo_p, geo_prob, mean_p)
             rows.append({"ID": str(fid), "Year": int(yr), "FSP": round(fsp, 2), "epoch_time": epoch})
 
     return pd.DataFrame(rows)
@@ -209,12 +226,18 @@ def main():
                 fluid_compressibility=fluid_comp, rock_compressibility=rock_comp,
                 plus_minus=pm, n_iterations=n_iters,
             )
-            pressure_df = run_hydrology_mc_time_series(
+            pressure_samples_df = run_hydrology_mc_time_series(
                 hydro_params,
                 well_data_list,
                 fault_df,
                 years_to_analyze,
-                result_mode="mean",
+                result_mode="raw",
+            )
+            pressure_df = (
+                pressure_samples_df
+                .groupby(["ID", "Year"], sort=False)["Pressure"]
+                .mean()
+                .reset_index()
             )
             pressure_df["Pressure"] = pressure_df["Pressure"].round(2)
 
@@ -223,7 +246,8 @@ def main():
         )
 
         # ---- Calculate FSP per fault per year ----
-        fsp_df = _calculate_fsp(geo_cdf_df, pressure_df)
+        fsp_source_df = pressure_df if model_run == 0 else pressure_samples_df
+        fsp_df = _calculate_fsp(geo_cdf_df, fsp_source_df)
         fsp_df["FSP"] = fsp_df["FSP"].round(2)
 
         # ---- Populate fault summary at year of interest ----

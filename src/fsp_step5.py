@@ -18,7 +18,10 @@ from fsp.models.hydrology import HydrologyParams
 from fsp.io.wells import load_injection_wells, preprocess_well_data, get_date_bounds
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
 from graphs.leaflet_map import save_fault_results_map_artifact
-from graphs.scientific import save_cdf_artifact, save_hydrology_input_distribution_histograms_artifact
+from graphs.scientific import (
+    save_hydrology_input_distribution_histograms_artifact,
+    save_probabilistic_hydrology_cdf_artifact,
+)
 
 STEP = 4   # 0-based index for Step 5
 STEP_HYDRO = 3  # Step 4 (deterministic hydrology)
@@ -56,20 +59,59 @@ def _prob_hydrology_cdf(fault_pressures: pd.Series) -> pd.DataFrame:
     return pd.DataFrame({"slip_pressure": sorted_p, "probability": exceedance})
 
 
-def _mean_slip_pressure_by_fault(geo_cdf_df: pd.DataFrame) -> dict:
-    if geo_cdf_df is None or geo_cdf_df.empty:
+def _geomechanics_pressure_samples_by_fault(geo_cdf_df: pd.DataFrame) -> dict:
+    if geo_cdf_df is None or geo_cdf_df.empty or "ID" not in geo_cdf_df.columns:
         return {}
-    return (
-        geo_cdf_df.assign(
-            ID=geo_cdf_df["ID"].astype(str),
-            slip_pressure=pd.to_numeric(geo_cdf_df["slip_pressure"], errors="coerce"),
+
+    clean = geo_cdf_df.assign(
+        ID=geo_cdf_df["ID"].astype(str),
+        slip_pressure=pd.to_numeric(geo_cdf_df["slip_pressure"], errors="coerce"),
+    ).dropna(subset=["slip_pressure"])
+
+    return {
+        str(fid): np.sort(group["slip_pressure"].to_numpy(dtype=float))
+        for fid, group in clean.groupby("ID", sort=False)
+    }
+
+
+def _empirical_geomechanics_probabilities(geo_pressures, hydro_pressures) -> np.ndarray:
+    """Evaluate P(geomechanics slip pressure <= hydrology pressure)."""
+    geo = np.asarray(geo_pressures, dtype=float)
+    hydro = np.asarray(hydro_pressures, dtype=float)
+    geo = np.sort(geo[np.isfinite(geo)])
+    hydro = hydro[np.isfinite(hydro)]
+    if len(hydro) == 0:
+        return np.array([], dtype=float)
+    if len(geo) == 0:
+        return np.zeros(len(hydro), dtype=float)
+    return np.searchsorted(geo, hydro, side="right").astype(float) / float(len(geo))
+
+
+def _combined_slip_potential_rows(fault_ids, pressure_groups: dict, geo_groups: dict, year_of_interest: int):
+    rows = []
+    probabilities = {}
+    for fid in fault_ids:
+        fid = str(fid)
+        fp = np.asarray(pressure_groups.get(fid, pd.Series(dtype=float)), dtype=float)
+        fp = fp[np.isfinite(fp)]
+        geo_pressures = np.asarray(geo_groups.get(fid, np.array([], dtype=float)), dtype=float)
+        fsp_values = _empirical_geomechanics_probabilities(geo_pressures, fp)
+        probability = float(fsp_values.mean()) if len(fsp_values) else 0.0
+        mean_pressure = float(fp.mean()) if len(fp) else 0.0
+        representative_slip_pressure = (
+            float(np.mean(geo_pressures[np.isfinite(geo_pressures)]))
+            if np.any(np.isfinite(geo_pressures))
+            else mean_pressure
         )
-        .dropna(subset=["slip_pressure"])
-        .groupby("ID")["slip_pressure"]
-        .mean()
-        .astype(float)
-        .to_dict()
-    )
+        probabilities[fid] = probability
+        rows.append({
+            "ID": fid,
+            "slip_pressure": representative_slip_pressure,
+            "probability": probability,
+            "Pressure": mean_pressure,
+            "Year": year_of_interest,
+        })
+    return rows, probabilities
 
 
 def main():
@@ -180,14 +222,13 @@ def main():
         if cdf_rows:
             cdf_df = pd.concat(cdf_rows, ignore_index=True)
             helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_cdf_graph_data", cdf_df)
-            save_cdf_artifact(
+            save_probabilistic_hydrology_cdf_artifact(
                 helper,
                 STEP,
                 cdf_df,
+                geo_cdf_df,
                 artifact_key="fsp-probabilistic-hydrology-cdf",
                 title="Probabilistic Hydrology CDF",
-                pressure_label="Pore Pressure Change (psi)",
-                probability_label="Exceedance Probability",
                 display_order=50,
             )
 
@@ -200,27 +241,19 @@ def main():
             display_order=51,
         )
 
-        slip_pressure_by_fault = _mean_slip_pressure_by_fault(geo_cdf_df)
-        slip_rows = []
         faults_with_fsp = fault_df.copy()
         faults_with_fsp["prob_hydro_fsp"] = 0.0
         pressure_groups = {
             str(fid): pd.to_numeric(group["Pressure"], errors="coerce").dropna().astype(float)
             for fid, group in yr_data.groupby(yr_data["ID"].astype(str), sort=False)
         }
-        probabilities = {}
-        for fid in faults_with_fsp["FaultID"].astype(str):
-            fp = pressure_groups.get(fid, pd.Series(dtype=float))
-            threshold = slip_pressure_by_fault.get(fid, float(fp.mean()) if len(fp) else 0.0)
-            probability = float((fp >= threshold).mean()) if len(fp) else 0.0
-            probabilities[fid] = probability
-            slip_rows.append({
-                "ID": fid,
-                "slip_pressure": threshold,
-                "probability": probability,
-                "Pressure": float(fp.mean()) if len(fp) else 0.0,
-                "Year": year_of_interest,
-            })
+        geo_groups = _geomechanics_pressure_samples_by_fault(geo_cdf_df)
+        slip_rows, probabilities = _combined_slip_potential_rows(
+            faults_with_fsp["FaultID"].astype(str),
+            pressure_groups,
+            geo_groups,
+            year_of_interest,
+        )
         faults_with_fsp["prob_hydro_fsp"] = (
             faults_with_fsp["FaultID"].astype(str).map(probabilities).fillna(0.0)
         )

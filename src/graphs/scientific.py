@@ -1413,6 +1413,511 @@ def _multi_curve_selector_plotly_html(
 """
 
 
+def _paired_hydrology_geomechanics_cdf_html(
+    *,
+    title: str,
+    series_payload: dict,
+    default_id: str,
+):
+    title_html = html.escape(title)
+    title_json = json.dumps(title)
+    payload_json = json.dumps(series_payload, separators=(",", ":"))
+    series_ids_json = json.dumps(list(series_payload.keys()))
+    default_id_json = json.dumps(default_id)
+    config_json = json.dumps(PLOTLY_CONFIG)
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {{
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: {MODERN_PAPER_BG};
+      color: {MODERN_TEXT_COLOR};
+      font-family: {MODERN_FONT_FAMILY};
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }}
+    .viewer {{
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: {MODERN_PAPER_BG};
+    }}
+    .toolbar {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+      padding: 8px 12px;
+      border-bottom: 1px solid {MODERN_BORDER_COLOR};
+      box-sizing: border-box;
+      background: {MODERN_CONTROL_BG};
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+    }}
+    .toolbar-title {{
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }}
+    .toolbar-status {{
+      color: {MODERN_MUTED_TEXT_COLOR};
+      font-size: 13px;
+      white-space: nowrap;
+    }}
+    .content {{
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: hidden;
+    }}
+    .plot-panel {{
+      flex: 0 0 clamp(430px, 56vh, 560px);
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 10px;
+      box-shadow: {MODERN_SHADOW};
+      overflow: hidden;
+      background: {MODERN_PLOT_BG};
+    }}
+    .plot-stage {{
+      width: 100%;
+      height: 100%;
+      min-height: clamp(430px, 56vh, 560px);
+    }}
+    .selected-summary {{
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 10px;
+      background: {MODERN_CONTROL_BG};
+      box-shadow: {MODERN_SHADOW};
+      box-sizing: border-box;
+    }}
+    .summary-card {{
+      min-width: 0;
+      padding: 7px 8px;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 8px;
+      background: {MODERN_PLOT_BG};
+    }}
+    .summary-label {{
+      color: {MODERN_MUTED_TEXT_COLOR};
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+    .summary-value {{
+      margin-top: 3px;
+      font-size: 13px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+    .selector-panel {{
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 10px;
+      background: {MODERN_CONTROL_BG};
+      box-shadow: {MODERN_SHADOW};
+      overflow: hidden;
+    }}
+    .selector-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px 6px;
+      border-bottom: 1px solid {MODERN_BORDER_COLOR};
+      flex: 0 0 auto;
+    }}
+    .selector-title {{
+      font-weight: 700;
+    }}
+    .selector-actions {{
+      display: inline-flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }}
+    .sort-control {{
+      font: inherit;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      padding: 5px 8px;
+      min-width: 170px;
+    }}
+    .legend-button {{
+      font: inherit;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      padding: 5px 10px;
+      cursor: pointer;
+    }}
+    .selector-note {{
+      padding: 8px 12px 4px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+      font-size: 11.5px;
+      line-height: 1.4;
+      flex: 0 0 auto;
+    }}
+    .series-legend {{
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 2px 6px 8px;
+      box-sizing: border-box;
+    }}
+    .legend-item {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+    }}
+    .legend-item:hover {{
+      background: rgba(148, 163, 184, 0.12);
+    }}
+    .legend-item input {{
+      margin: 0;
+      flex: 0 0 auto;
+    }}
+    .legend-swatch {{
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      background: #2563eb;
+      flex: 0 0 auto;
+    }}
+    .legend-label {{
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      flex: 1 1 auto;
+    }}
+    .legend-fsp {{
+      margin-left: auto;
+      color: {MODERN_MUTED_TEXT_COLOR};
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    #plot {{
+      width: 100%;
+      height: 100%;
+    }}
+    @media (max-width: 780px) {{
+      .plot-stage {{
+        min-height: 360px;
+      }}
+      .plot-panel {{
+        flex-basis: 380px;
+      }}
+      .series-legend {{
+        max-height: 240px;
+      }}
+      .selected-summary {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+    }}
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <div class="viewer">
+    <div class="toolbar">
+      <div class="toolbar-title">{title_html}</div>
+      <div id="selection-summary" class="toolbar-status"></div>
+    </div>
+    <div class="content">
+      <div class="plot-panel">
+        <div class="plot-stage">
+          <div id="plot"></div>
+        </div>
+      </div>
+      <section id="selected-summary" class="selected-summary" aria-label="Selected fault summary"></section>
+      <aside class="selector-panel" aria-label="Fault legend and selector">
+        <div class="selector-header">
+          <div class="selector-title">Fault Curves</div>
+          <div class="selector-actions">
+            <select id="sort-control" class="sort-control" onchange="handleSortChange(this.value)" aria-label="Sort faults">
+              <option value="fsp">Sort by FSP</option>
+              <option value="hydrologyMax">Sort by max pressure</option>
+              <option value="geoMedian">Sort by P50 slip pressure</option>
+              <option value="label">Sort by fault ID</option>
+            </select>
+            <button type="button" class="legend-button" onclick="showFocusedOnly()">Selected Only</button>
+            <button type="button" class="legend-button" onclick="setAllSelection(true)">Show All</button>
+            <button type="button" class="legend-button" onclick="setAllSelection(false)">Clear All</button>
+          </div>
+        </div>
+        <div class="selector-note">Solid blue curves show hydrology pressure exceedance. Dashed curves show the Step 3 geomechanics fault-slip CDF.</div>
+        <div id="series-legend" class="series-legend"></div>
+      </aside>
+    </div>
+  </div>
+  <script>
+    const title = {title_json};
+    const seriesPayload = {payload_json};
+    const seriesIds = {series_ids_json};
+    const defaultId = {default_id_json};
+    const plotConfig = {config_json};
+    const selectedSeriesIds = new Set(defaultId ? [defaultId] : seriesIds.slice(0, 1));
+    let focusedSeriesId = defaultId || (seriesIds.length ? seriesIds[0] : null);
+    let currentSort = 'fsp';
+
+    function updateSummary() {{
+      const summary = document.getElementById('selection-summary');
+      summary.textContent = selectedSeriesIds.size + ' of ' + seriesIds.length + ' faults visible';
+    }}
+
+    function formatFsp(value) {{
+      return Number.isFinite(value) ? value.toFixed(3) : '0.000';
+    }}
+
+    function formatPsi(value) {{
+      return Number.isFinite(value) ? value.toLocaleString(undefined, {{ maximumFractionDigits: 1 }}) + ' psi' : 'n/a';
+    }}
+
+    function selectedSeriesForSummary() {{
+      if (focusedSeriesId && selectedSeriesIds.has(focusedSeriesId)) return seriesPayload[focusedSeriesId];
+      const firstSelected = Array.from(selectedSeriesIds)[0];
+      if (firstSelected) {{
+        focusedSeriesId = firstSelected;
+        return seriesPayload[firstSelected];
+      }}
+      return focusedSeriesId ? seriesPayload[focusedSeriesId] : null;
+    }}
+
+    function updateSelectedSummary() {{
+      const panel = document.getElementById('selected-summary');
+      const series = selectedSeriesForSummary();
+      if (!panel || !series) {{
+        if (panel) panel.innerHTML = '';
+        return;
+      }}
+      const stats = series.stats || {{}};
+      const cards = [
+        ['Fault', series.label || focusedSeriesId || ''],
+        ['FSP', formatFsp(series.fsp)],
+        ['Hyd P50', formatPsi(stats.hydrologyMedian)],
+        ['Hyd P95', formatPsi(stats.hydrologyP95)],
+        ['Hyd Max', formatPsi(stats.hydrologyMax)],
+        ['Geo P50', formatPsi(stats.geomechanicsP50)],
+        ['Geo P90', formatPsi(stats.geomechanicsP90)]
+      ];
+      panel.innerHTML = cards.map(function(card) {{
+        return '<div class="summary-card"><div class="summary-label">' + card[0] + '</div><div class="summary-value">' + card[1] + '</div></div>';
+      }}).join('');
+    }}
+
+    function sortedSeriesIds() {{
+      const ids = seriesIds.slice();
+      ids.sort(function(a, b) {{
+        const sa = seriesPayload[a] || {{}};
+        const sb = seriesPayload[b] || {{}};
+        const ast = sa.stats || {{}};
+        const bst = sb.stats || {{}};
+        if (currentSort === 'hydrologyMax') return (bst.hydrologyMax || 0) - (ast.hydrologyMax || 0);
+        if (currentSort === 'geoMedian') return (ast.geomechanicsP50 || 0) - (bst.geomechanicsP50 || 0);
+        if (currentSort === 'label') return String(sa.label || a).localeCompare(String(sb.label || b));
+        return (sb.fsp || 0) - (sa.fsp || 0);
+      }});
+      return ids;
+    }}
+
+    function handleSortChange(value) {{
+      currentSort = value || 'fsp';
+      populateLegend();
+    }}
+
+    function setAllSelection(checked) {{
+      selectedSeriesIds.clear();
+      if (checked) {{
+        seriesIds.forEach(function(seriesId) {{
+          selectedSeriesIds.add(seriesId);
+        }});
+      }}
+      document.querySelectorAll('.series-toggle').forEach(function(input) {{
+        input.checked = checked;
+      }});
+      updateSummary();
+      updateSelectedSummary();
+      renderSeries();
+    }}
+
+    function showFocusedOnly() {{
+      selectedSeriesIds.clear();
+      if (focusedSeriesId) selectedSeriesIds.add(focusedSeriesId);
+      document.querySelectorAll('.series-toggle').forEach(function(input) {{
+        input.checked = input.getAttribute('data-series-id') === focusedSeriesId;
+      }});
+      updateSummary();
+      updateSelectedSummary();
+      renderSeries();
+    }}
+
+    function toggleSeries(seriesId, checked) {{
+      if (checked) {{
+        selectedSeriesIds.add(seriesId);
+        focusedSeriesId = seriesId;
+      }} else {{
+        selectedSeriesIds.delete(seriesId);
+      }}
+      updateSummary();
+      updateSelectedSummary();
+      renderSeries();
+    }}
+
+    function populateLegend() {{
+      const legend = document.getElementById('series-legend');
+      legend.innerHTML = '';
+      sortedSeriesIds().forEach(function(seriesId) {{
+        const series = seriesPayload[seriesId] || {{}};
+        const label = document.createElement('label');
+        label.className = 'legend-item';
+        label.setAttribute('data-series-id', seriesId);
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'series-toggle';
+        checkbox.checked = selectedSeriesIds.has(seriesId);
+        checkbox.setAttribute('data-series-id', seriesId);
+        checkbox.addEventListener('change', function() {{
+          toggleSeries(seriesId, checkbox.checked);
+        }});
+
+        const swatch = document.createElement('span');
+        swatch.className = 'legend-swatch';
+
+        const text = document.createElement('span');
+        text.className = 'legend-label';
+        text.textContent = series.label || seriesId;
+
+        const fsp = document.createElement('span');
+        fsp.className = 'legend-fsp';
+        fsp.textContent = 'FSP ' + formatFsp(series.fsp);
+
+        label.appendChild(checkbox);
+        label.appendChild(swatch);
+        label.appendChild(text);
+        label.appendChild(fsp);
+        legend.appendChild(label);
+      }});
+      updateSummary();
+      updateSelectedSummary();
+    }}
+
+    function renderSeries() {{
+      const activeSeriesIds = seriesIds.filter(function(seriesId) {{
+        return selectedSeriesIds.has(seriesId);
+      }});
+      const traces = [];
+      activeSeriesIds.forEach(function(seriesId) {{
+        const series = seriesPayload[seriesId] || {{}};
+        if (series.hydrology) {{
+          traces.push({{
+            x: series.hydrology.x,
+            y: series.hydrology.y,
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Hydrology pressure exceedance - ' + (series.label || seriesId),
+            line: {{ width: activeSeriesIds.length > 8 ? 2.0 : 2.7, color: '#2563eb' }},
+            hovertemplate: 'Fault: ' + (series.label || seriesId) + '<br>Hydrology pressure: %{{x:,.2f}} psi<br>Exceedance probability: %{{y:.3f}}<br>FSP: ' + formatFsp(series.fsp) + '<extra></extra>'
+          }});
+        }}
+        if (series.geomechanics) {{
+          traces.push({{
+            x: series.geomechanics.x,
+            y: series.geomechanics.y,
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Geomechanics fault-slip CDF - ' + (series.label || seriesId),
+            line: {{ width: activeSeriesIds.length > 8 ? 1.8 : 2.4, color: '#475569', dash: 'dash' }},
+            hovertemplate: 'Fault: ' + (series.label || seriesId) + '<br>Geomechanics slip pressure: %{{x:,.2f}} psi<br>Slip probability: %{{y:.3f}}<br>FSP: ' + formatFsp(series.fsp) + '<extra></extra>'
+          }});
+        }}
+      }});
+      const layout = {{
+        autosize: true,
+        template: 'plotly_white',
+        margin: {{ l: 74, r: 34, t: 34, b: 64 }},
+        font: {{ family: '{MODERN_FONT_FAMILY}', size: 12, color: '{MODERN_TEXT_COLOR}' }},
+        paper_bgcolor: '{MODERN_PLOT_BG}',
+        plot_bgcolor: '{MODERN_PLOT_BG}',
+        showlegend: false,
+        hovermode: 'closest',
+        annotations: activeSeriesIds.length ? [] : [{{
+          text: 'Select at least one fault from the legend to display its curves.',
+          x: 0.5,
+          y: 0.5,
+          xref: 'paper',
+          yref: 'paper',
+          showarrow: false,
+          font: {{ size: 14, color: '{MODERN_MUTED_TEXT_COLOR}' }}
+        }}],
+        xaxis: {{
+          title: {{ text: 'Pore Pressure Change (psi)', standoff: 10, font: {{ color: '{MODERN_MUTED_TEXT_COLOR}' }} }},
+          showgrid: true,
+          gridcolor: '{MODERN_GRID_COLOR}',
+          linecolor: '{MODERN_GRID_COLOR}',
+          tickcolor: '{MODERN_GRID_COLOR}',
+          tickfont: {{ color: '{MODERN_AXIS_COLOR}' }},
+          zeroline: false,
+          automargin: true
+        }},
+        yaxis: {{
+          title: {{ text: 'Probability', standoff: 12, font: {{ color: '{MODERN_MUTED_TEXT_COLOR}' }} }},
+          range: [0, 1],
+          tickformat: '.2f',
+          showgrid: true,
+          gridcolor: '{MODERN_GRID_COLOR}',
+          linecolor: '{MODERN_GRID_COLOR}',
+          tickcolor: '{MODERN_GRID_COLOR}',
+          tickfont: {{ color: '{MODERN_AXIS_COLOR}' }},
+          zeroline: false,
+          automargin: true
+        }}
+      }};
+      Plotly.react(document.getElementById('plot'), traces, layout, plotConfig);
+    }}
+
+    populateLegend();
+    updateSelectedSummary();
+    renderSeries();
+    window.addEventListener('resize', function() {{
+      Plotly.Plots.resize(document.getElementById('plot'));
+    }});
+  </script>
+</body>
+</html>
+"""
+
+
 def save_cdf_artifact(
     helper,
     step_index: int,
@@ -1470,6 +1975,113 @@ def save_cdf_artifact(
             y_range=[0, 1],
             y_tickformat=".2f",
             color_tab_label="Pore Pressure to Slip",
+        )
+        return _write_html_artifact(
+            helper,
+            artifact_key=artifact_key,
+            title=title,
+            html_text=html_text,
+            caption=f"Interactive {title.lower()} generated by FSP.",
+            display_order=display_order,
+            preferred_height=700,
+        )
+    except Exception as exc:
+        add_graph_warning(helper, step_index, f"{prefix}: {exc}")
+        return None
+
+
+def save_probabilistic_hydrology_cdf_artifact(
+    helper,
+    step_index: int,
+    hydrology_cdf_df: pd.DataFrame,
+    geomechanics_cdf_df: pd.DataFrame,
+    *,
+    artifact_key: str,
+    title: str,
+    display_order: int,
+):
+    prefix = _warn_prefix(title)
+    try:
+        remove_step_messages(helper, step_index, prefix)
+        required_columns = ["ID", "slip_pressure", "probability"]
+        if not has_columns(hydrology_cdf_df, required_columns):
+            add_graph_warning(helper, step_index, f"{prefix} because required hydrology CDF columns are missing.")
+            return None
+        if not has_columns(geomechanics_cdf_df, required_columns):
+            add_graph_warning(helper, step_index, f"{prefix} because required geomechanics CDF columns are missing.")
+            return None
+
+        hyd_df = _clean(hydrology_cdf_df, ["slip_pressure", "probability"])
+        geo_df = _clean(geomechanics_cdf_df, ["slip_pressure", "probability"])
+        if hyd_df.empty:
+            add_graph_warning(helper, step_index, f"{prefix} because no valid hydrology CDF records were available.")
+            return None
+        if geo_df.empty:
+            add_graph_warning(helper, step_index, f"{prefix} because no valid geomechanics CDF records were available.")
+            return None
+
+        geo_groups = {
+            str(fid): group.sort_values("slip_pressure")
+            for fid, group in geo_df.assign(ID=geo_df["ID"].astype(str)).groupby("ID", sort=False)
+        }
+
+        series_payload = {}
+        for fault_id, hyd_fault_df in hyd_df.assign(ID=hyd_df["ID"].astype(str)).groupby("ID", sort=True):
+            hyd_fault_df = hyd_fault_df.sort_values("slip_pressure")
+            geo_fault_df = geo_groups.get(str(fault_id))
+            if geo_fault_df is None or geo_fault_df.empty:
+                continue
+
+            hydro_pressures = hyd_fault_df["slip_pressure"].to_numpy(dtype=float)
+            geo_pressures = geo_fault_df["slip_pressure"].to_numpy(dtype=float)
+            geo_sorted = np.sort(geo_pressures[np.isfinite(geo_pressures)])
+            if len(geo_sorted) and len(hydro_pressures):
+                fsp_values = np.searchsorted(geo_sorted, hydro_pressures, side="right").astype(float) / float(len(geo_sorted))
+                fsp = round(float(np.mean(fsp_values)), 6)
+            else:
+                fsp = 0.0
+
+            hyd_clean = hydro_pressures[np.isfinite(hydro_pressures)]
+            geo_clean = geo_pressures[np.isfinite(geo_pressures)]
+            stats = {
+                "hydrologyMedian": round(float(np.quantile(hyd_clean, 0.50)), 6) if len(hyd_clean) else None,
+                "hydrologyP95": round(float(np.quantile(hyd_clean, 0.95)), 6) if len(hyd_clean) else None,
+                "hydrologyMax": round(float(np.max(hyd_clean)), 6) if len(hyd_clean) else None,
+                "geomechanicsP10": round(float(np.quantile(geo_clean, 0.10)), 6) if len(geo_clean) else None,
+                "geomechanicsP50": round(float(np.quantile(geo_clean, 0.50)), 6) if len(geo_clean) else None,
+                "geomechanicsP90": round(float(np.quantile(geo_clean, 0.90)), 6) if len(geo_clean) else None,
+            }
+
+            series_payload[str(fault_id)] = {
+                "label": str(fault_id),
+                "fsp": fsp,
+                "stats": stats,
+                "hydrology": {
+                    "x": [round(float(v), 6) for v in hyd_fault_df["slip_pressure"]],
+                    "y": [round(float(v), 6) for v in hyd_fault_df["probability"]],
+                },
+                "geomechanics": {
+                    "x": [round(float(v), 6) for v in geo_fault_df["slip_pressure"]],
+                    "y": [round(float(v), 6) for v in geo_fault_df["probability"]],
+                },
+            }
+
+        if not series_payload:
+            add_graph_warning(helper, step_index, f"{prefix} because no faults had both hydrology and geomechanics CDF data.")
+            return None
+
+        default_id = max(
+            series_payload,
+            key=lambda fid: (
+                float(series_payload[fid].get("fsp") or 0.0),
+                float((series_payload[fid].get("stats") or {}).get("hydrologyMax") or 0.0),
+            ),
+        )
+
+        html_text = _paired_hydrology_geomechanics_cdf_html(
+            title=title,
+            series_payload=series_payload,
+            default_id=default_id,
         )
         return _write_html_artifact(
             helper,

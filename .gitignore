@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 .env
 AGENTS.md
+CLAUDE.md
 reference_old_code/
 examples/
