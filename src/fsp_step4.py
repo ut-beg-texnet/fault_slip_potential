@@ -242,6 +242,13 @@ def main():
         sigma_eff = [r["normal_stress"] for r in hydro_res_list]
         strikes = list(fault_df["Strike"].astype(float))
 
+        if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
+            hydro_regime = "Normal"
+        elif abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
+            hydro_regime = "Reverse"
+        else:
+            hydro_regime = "Strike-Slip"
+
         arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(
             float(sh), float(sH), float(sV),
             tau_eff, sigma_eff,
@@ -260,6 +267,7 @@ def main():
             artifact_key="fsp-deterministic-hydrology-mohr-diagram",
             title="Hydrology Mohr Diagram",
             display_order=42,
+            stress_regime=hydro_regime,
         )
 
         faults_with_pp = fault_df.copy()

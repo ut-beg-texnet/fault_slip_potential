@@ -80,6 +80,36 @@ def _circle_stress_labels(stress_regime: str = None):
     }
 
 
+def _principal_stress_x_positions(arcs_df: pd.DataFrame, stress_regime: str = None):
+    """Return {label: x_position} for σh, σH, σV on the Mohr diagram x-axis.
+
+    Derived from the circle extents rather than raw stress values so this
+    works for both the geomechanics and hydrology Mohr diagrams.
+    """
+    regime = str(stress_regime or "").strip().lower().replace("_", " ").replace("-", " ")
+    if not any(k in regime for k in ("normal", "strike", "slip", "reverse", "thrust")):
+        return {}
+    c1 = arcs_df[arcs_df["id"] == "circle1"]["x"]
+    c2 = arcs_df[arcs_df["id"] == "circle2"]["x"]
+    if c1.empty or c2.empty:
+        return {}
+    sigma_max = float(c1.max())   # largest effective principal stress
+    sigma_min = float(c1.min())   # smallest
+    sigma_mid = float(c2.max())   # middle
+    if "normal" in regime:
+        principal = ["sigmaV", "sigmaH", "sigmah"]
+    elif "strike" in regime or "slip" in regime:
+        principal = ["sigmaH", "sigmaV", "sigmah"]
+    else:
+        principal = ["sigmaH", "sigmah", "sigmaV"]
+    display = {"sigmaV": "σV", "sigmaH": "σH", "sigmah": "σh"}
+    return {
+        display[principal[0]]: sigma_max,
+        display[principal[1]]: sigma_mid,
+        display[principal[2]]: sigma_min,
+    }
+
+
 def _mohr_controls_script(min_pressure, max_pressure, fault_trace_index, x_upper, y_upper):
     return f"""
   <style>
@@ -246,6 +276,7 @@ def save_mohr_diagram_graph_artifact(
                 y=circle_df["y"],
                 mode="lines",
                 name=circle_label,
+                showlegend=False,
                 line={"width": 2.2, "color": "#e5e7eb"},
                 hovertemplate=f"{circle_label}<br>σ: %{{x:,.2f}} psi<br>τ: %{{y:,.2f}} psi<extra></extra>",
             ))
@@ -329,6 +360,22 @@ def save_mohr_diagram_graph_artifact(
                 "borderpad": 4,
                 "font": {"size": 12, "color": "#f8fafc"},
             })
+
+        for label, x_pos in _principal_stress_x_positions(arcs_df, stress_regime).items():
+            if 0 <= x_pos <= x_upper * 1.05:
+                annotations.append({
+                    "x": x_pos,
+                    "y": 0,
+                    "xref": "x",
+                    "yref": "y",
+                    "text": label,
+                    "showarrow": False,
+                    "xanchor": "center",
+                    "yanchor": "bottom",
+                    "bgcolor": "rgba(17, 24, 39, 0.88)",
+                    "borderpad": 3,
+                    "font": {"size": 13, "color": "#06b6d4", "family": MODERN_FONT_FAMILY},
+                })
 
         fig.update_layout(
             autosize=True,
