@@ -435,32 +435,33 @@ class TestScientificGraphArtifacts:
             hydrology_cdf_df,
             geomechanics_cdf_df,
             artifact_key="fsp-probabilistic-hydrology-cdf",
-            title="Probabilistic Hydrology CDF",
+            title="Probability of Pressure Exceedance",
             display_order=50,
         )
 
         html = open(path, encoding="utf-8").read()
         assert helper.artifacts[0]["key"] == "fsp-probabilistic-hydrology-cdf"
-        assert helper.artifacts[0]["title"] == "Probabilistic Hydrology CDF"
+        assert helper.artifacts[0]["title"] == "Probability of Pressure Exceedance"
         assert helper.artifacts[0]["displayOrder"] == 50
         assert helper.artifacts[0]["renderer"] == "html"
         assert "Hydrology pressure exceedance" in html
         assert "Geomechanics fault-slip CDF" in html
         assert "dash: 'dash'" in html
         assert "series-legend" in html
-        assert "selected-summary" in html
+        assert "selected-summary" not in html
         assert "Sort by FSP" in html
         assert "Sort by max pressure" in html
         assert "Sort by P50 slip pressure" in html
         assert "Selected Only" in html
-        assert "Hyd P50" in html
-        assert "Geo P90" in html
         assert "showlegend: false" in html
         assert "const selectedSeriesIds = new Set(defaultId ? [defaultId]" in html
         assert "FSP " in html
         assert "grid-template-areas:" in html
         assert '"plot selector"' in html
-        assert '"summary selector"' in html
+        assert '"summary selector"' not in html
+        assert "Max Delta PP (psi)" in html
+        assert "applyMaxDeltaPP" in html
+        assert "Pore Pressure on fault (psi)" in html
         assert "height: 100%;" in html
         assert "height: 100vh;" not in html
         assert "@media (max-width: 780px)" in html

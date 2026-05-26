@@ -1473,15 +1473,34 @@ def _paired_hydrology_geomechanics_cdf_html(
       font-size: 13px;
       white-space: nowrap;
     }}
+    .toolbar-controls {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }}
+    .ctrl-label {{
+      font-size: 12px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+      white-space: nowrap;
+    }}
+    .ctrl-input {{
+      width: 90px;
+      padding: 3px 6px;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 5px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      font-size: 12px;
+    }}
     .content {{
       flex: 1;
       min-height: 0;
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr);
       grid-template-areas:
-        "plot selector"
-        "summary selector";
+        "plot selector";
       gap: 12px;
       padding: 12px;
       box-sizing: border-box;
@@ -1501,40 +1520,6 @@ def _paired_hydrology_geomechanics_cdf_html(
       width: 100%;
       height: 100%;
       min-height: 0;
-    }}
-    .selected-summary {{
-      grid-area: summary;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      padding: 10px 12px;
-      border: 1px solid {MODERN_BORDER_COLOR};
-      border-radius: 10px;
-      background: {MODERN_CONTROL_BG};
-      box-shadow: {MODERN_SHADOW};
-      box-sizing: border-box;
-    }}
-    .summary-card {{
-      min-width: 0;
-      padding: 7px 8px;
-      border: 1px solid {MODERN_BORDER_COLOR};
-      border-radius: 8px;
-      background: {MODERN_PLOT_BG};
-    }}
-    .summary-label {{
-      color: {MODERN_MUTED_TEXT_COLOR};
-      font-size: 11px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }}
-    .summary-value {{
-      margin-top: 3px;
-      font-size: 13px;
-      font-weight: 700;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
     }}
     .selector-panel {{
       grid-area: selector;
@@ -1660,6 +1645,13 @@ def _paired_hydrology_geomechanics_cdf_html(
   <div class="viewer">
     <div class="toolbar">
       <div class="toolbar-title">{title_html}</div>
+      <div class="toolbar-controls">
+        <label class="ctrl-label" for="max-delta-pp">Max Delta PP (psi):</label>
+        <input type="number" id="max-delta-pp" class="ctrl-input"
+               placeholder="Auto" min="0" step="100"
+               onchange="applyMaxDeltaPP()">
+        <button type="button" class="legend-button" onclick="resetXAxisRange()">Reset</button>
+      </div>
       <div id="selection-summary" class="toolbar-status"></div>
     </div>
     <div class="content">
@@ -1668,7 +1660,6 @@ def _paired_hydrology_geomechanics_cdf_html(
           <div id="plot"></div>
         </div>
       </div>
-      <section id="selected-summary" class="selected-summary" aria-label="Selected fault summary"></section>
       <aside class="selector-panel" aria-label="Fault legend and selector">
         <div class="selector-header">
           <div class="selector-title">Fault Curves</div>
@@ -1698,6 +1689,7 @@ def _paired_hydrology_geomechanics_cdf_html(
     const selectedSeriesIds = new Set(defaultId ? [defaultId] : seriesIds.slice(0, 1));
     let focusedSeriesId = defaultId || (seriesIds.length ? seriesIds[0] : null);
     let currentSort = 'fsp';
+    let maxDeltaPP = null;
 
     function updateSummary() {{
       const summary = document.getElementById('selection-summary');
@@ -1712,31 +1704,16 @@ def _paired_hydrology_geomechanics_cdf_html(
       return Number.isFinite(value) ? value.toLocaleString(undefined, {{ maximumFractionDigits: 1 }}) + ' psi' : 'n/a';
     }}
 
-    function selectedSeriesForSummary() {{
-      if (focusedSeriesId && selectedSeriesIds.has(focusedSeriesId)) return seriesPayload[focusedSeriesId];
-      const firstSelected = Array.from(selectedSeriesIds)[0];
-      if (firstSelected) {{
-        focusedSeriesId = firstSelected;
-        return seriesPayload[firstSelected];
-      }}
-      return focusedSeriesId ? seriesPayload[focusedSeriesId] : null;
+    function applyMaxDeltaPP() {{
+      const val = parseFloat(document.getElementById('max-delta-pp').value);
+      maxDeltaPP = (Number.isFinite(val) && val > 0) ? val : null;
+      renderSeries();
     }}
 
-    function updateSelectedSummary() {{
-      const panel = document.getElementById('selected-summary');
-      const series = selectedSeriesForSummary();
-      if (!panel || !series) {{
-        if (panel) panel.innerHTML = '';
-        return;
-      }}
-      const stats = series.stats || {{}};
-      const cards = [
-        ['Fault', series.label || focusedSeriesId || ''],
-        ['FSP', formatFsp(series.fsp)]
-      ];
-      panel.innerHTML = cards.map(function(card) {{
-        return '<div class="summary-card"><div class="summary-label">' + card[0] + '</div><div class="summary-value">' + card[1] + '</div></div>';
-      }}).join('');
+    function resetXAxisRange() {{
+      maxDeltaPP = null;
+      document.getElementById('max-delta-pp').value = '';
+      renderSeries();
     }}
 
     function sortedSeriesIds() {{
@@ -1770,7 +1747,6 @@ def _paired_hydrology_geomechanics_cdf_html(
         input.checked = checked;
       }});
       updateSummary();
-      updateSelectedSummary();
       renderSeries();
     }}
 
@@ -1781,7 +1757,6 @@ def _paired_hydrology_geomechanics_cdf_html(
         input.checked = input.getAttribute('data-series-id') === focusedSeriesId;
       }});
       updateSummary();
-      updateSelectedSummary();
       renderSeries();
     }}
 
@@ -1793,7 +1768,6 @@ def _paired_hydrology_geomechanics_cdf_html(
         selectedSeriesIds.delete(seriesId);
       }}
       updateSummary();
-      updateSelectedSummary();
       renderSeries();
     }}
 
@@ -1833,7 +1807,6 @@ def _paired_hydrology_geomechanics_cdf_html(
         legend.appendChild(label);
       }});
       updateSummary();
-      updateSelectedSummary();
     }}
 
     function renderSeries() {{
@@ -1885,14 +1858,15 @@ def _paired_hydrology_geomechanics_cdf_html(
           font: {{ size: 14, color: '{MODERN_MUTED_TEXT_COLOR}' }}
         }}],
         xaxis: {{
-          title: {{ text: 'Pore Pressure Change (psi)', standoff: 10, font: {{ color: '{MODERN_MUTED_TEXT_COLOR}' }} }},
+          title: {{ text: 'Pore Pressure on fault (psi)', standoff: 10, font: {{ color: '{MODERN_MUTED_TEXT_COLOR}' }} }},
           showgrid: true,
           gridcolor: '{MODERN_GRID_COLOR}',
           linecolor: '{MODERN_GRID_COLOR}',
           tickcolor: '{MODERN_GRID_COLOR}',
           tickfont: {{ color: '{MODERN_AXIS_COLOR}' }},
           zeroline: false,
-          automargin: true
+          automargin: true,
+          ...(maxDeltaPP !== null ? {{ range: [0, maxDeltaPP] }} : {{}})
         }},
         yaxis: {{
           title: {{ text: 'Probability', standoff: 12, font: {{ color: '{MODERN_MUTED_TEXT_COLOR}' }} }},
@@ -1911,7 +1885,6 @@ def _paired_hydrology_geomechanics_cdf_html(
     }}
 
     populateLegend();
-    updateSelectedSummary();
     renderSeries();
     window.addEventListener('resize', function() {{
       Plotly.Plots.resize(document.getElementById('plot'));

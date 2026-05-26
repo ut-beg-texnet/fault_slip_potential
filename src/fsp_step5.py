@@ -228,7 +228,7 @@ def main():
                 cdf_df,
                 geo_cdf_df,
                 artifact_key="fsp-probabilistic-hydrology-cdf",
-                title="Probabilistic Hydrology CDF",
+                title="Probability of Pressure Exceedance",
                 display_order=50,
             )
 
