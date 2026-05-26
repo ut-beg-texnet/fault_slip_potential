@@ -396,8 +396,11 @@ class TestScientificGraphArtifacts:
         assert "currentSeriesColor" in html
         assert "legend-panel" in html
         assert "plot-stage" in html
-        assert "flex-direction: column;" in html
-        assert "flex: 0 0 clamp(430px, 56vh, 560px);" in html
+        assert "grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);" in html
+        assert "grid-template-rows: minmax(260px, 1fr) minmax(180px, 42%);" in html
+        assert "height: 100%;" in html
+        assert "height: 100vh;" not in html
+        assert "flex: 0 0 clamp(430px, 56vh, 560px);" not in html
         assert "height: 8px;" in html
         assert "overflow-y: auto;" in html
         assert "toggleSeries" in html
@@ -455,6 +458,11 @@ class TestScientificGraphArtifacts:
         assert "showlegend: false" in html
         assert "const selectedSeriesIds = new Set(defaultId ? [defaultId]" in html
         assert "FSP " in html
+        assert "grid-template-areas:" in html
+        assert '"plot selector"' in html
+        assert '"summary selector"' in html
+        assert "height: 100%;" in html
+        assert "height: 100vh;" not in html
         assert "@media (max-width: 780px)" in html
         assert "Inter, Segoe UI" in html
         assert "Plotly.react" in html
@@ -471,6 +479,7 @@ class TestScientificGraphArtifacts:
             "low_delta": [0.0, -2.0, 0.0],
             "high_delta": [5.0, 0.0, 1.0],
             "method": ["P10 vs P90 sample-band median"] * 3,
+            "baseline_slip_pressure": [12.5, 12.5, 7.5],
         })
 
         path = save_uncertainty_tornado_artifact(
@@ -487,7 +496,19 @@ class TestScientificGraphArtifacts:
         assert "Fault A" in html
         assert "Fault B" in html
         assert "P10 vs P90 sample-band median" in html
-        assert "rgba(255, 255, 255, 0.94)" in html
+        assert "Pore Pressure to Slip" in html
+        assert "pressure-min" in html
+        assert "pressure-max" in html
+        assert "colorbar-min" in html
+        assert "colorbar-max" in html
+        assert "handleColorRangeInput" in html
+        assert "resetColorRange" in html
+        assert "baselineSlipPressure" in html
+        assert "scaledColor(baselineSlipPressure)" in html
+        assert "control-panel" in html
+        assert "grid-template-columns: minmax(0, 1fr) minmax(250px, 280px);" in html
+        assert "height: 100%;" in html
+        assert "height: 100vh;" not in html
 
     def test_input_distribution_histograms_use_per_fault_window(self, tmp_path):
         helper = _FakeHelper(tmp_path)

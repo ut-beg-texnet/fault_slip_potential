@@ -250,7 +250,8 @@ def _single_series_plotly_html(
       -webkit-font-smoothing: antialiased;
     }}
     .viewer {{
-      height: 100vh;
+      height: 100%;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       background: {MODERN_PAPER_BG};
@@ -282,15 +283,14 @@ def _single_series_plotly_html(
     .content {{
       flex: 1;
       min-height: 0;
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
       gap: 12px;
       padding: 12px;
       box-sizing: border-box;
       overflow: hidden;
     }}
     .plot-panel {{
-      flex: 0 0 clamp(430px, 56vh, 560px);
       min-width: 0;
       min-height: 0;
       border: 1px solid {MODERN_BORDER_COLOR};
@@ -302,10 +302,9 @@ def _single_series_plotly_html(
     .plot-stage {{
       width: 100%;
       height: 100%;
-      min-height: clamp(430px, 56vh, 560px);
+      min-height: 0;
     }}
     .legend-panel {{
-      flex: 1 1 auto;
       min-width: 0;
       min-height: 0;
       display: flex;
@@ -521,14 +520,15 @@ def _single_series_plotly_html(
       box-sizing: border-box;
     }}
     @media (max-width: 780px) {{
-      .plot-stage {{
-        min-height: 360px;
+      .content {{
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(260px, 1fr) minmax(180px, 42%);
       }}
       .plot-panel {{
-        flex-basis: 380px;
+        min-height: 260px;
       }}
       .series-legend {{
-        max-height: 240px;
+        max-height: none;
       }}
     }}
     @media (max-width: 680px) {{
@@ -1011,7 +1011,8 @@ def _multi_curve_selector_plotly_html(
       -webkit-font-smoothing: antialiased;
     }}
     .viewer {{
-      height: 100vh;
+      height: 100%;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       background: {MODERN_PAPER_BG};
@@ -1442,7 +1443,8 @@ def _paired_hydrology_geomechanics_cdf_html(
       -webkit-font-smoothing: antialiased;
     }}
     .viewer {{
-      height: 100vh;
+      height: 100%;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       background: {MODERN_PAPER_BG};
@@ -1474,15 +1476,19 @@ def _paired_hydrology_geomechanics_cdf_html(
     .content {{
       flex: 1;
       min-height: 0;
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "plot selector"
+        "summary selector";
       gap: 12px;
       padding: 12px;
       box-sizing: border-box;
       overflow: hidden;
     }}
     .plot-panel {{
-      flex: 0 0 clamp(430px, 56vh, 560px);
+      grid-area: plot;
       min-width: 0;
       min-height: 0;
       border: 1px solid {MODERN_BORDER_COLOR};
@@ -1494,9 +1500,10 @@ def _paired_hydrology_geomechanics_cdf_html(
     .plot-stage {{
       width: 100%;
       height: 100%;
-      min-height: clamp(430px, 56vh, 560px);
+      min-height: 0;
     }}
     .selected-summary {{
+      grid-area: summary;
       display: grid;
       grid-template-columns: repeat(7, minmax(0, 1fr));
       gap: 8px;
@@ -1530,7 +1537,7 @@ def _paired_hydrology_geomechanics_cdf_html(
       white-space: nowrap;
     }}
     .selector-panel {{
-      flex: 1 1 auto;
+      grid-area: selector;
       min-height: 0;
       display: flex;
       flex-direction: column;
@@ -1631,14 +1638,19 @@ def _paired_hydrology_geomechanics_cdf_html(
       height: 100%;
     }}
     @media (max-width: 780px) {{
-      .plot-stage {{
-        min-height: 360px;
+      .content {{
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(260px, 1fr) auto minmax(180px, 36%);
+        grid-template-areas:
+          "plot"
+          "summary"
+          "selector";
       }}
       .plot-panel {{
-        flex-basis: 380px;
+        min-height: 260px;
       }}
       .series-legend {{
-        max-height: 240px;
+        max-height: none;
       }}
       .selected-summary {{
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2233,13 +2245,7 @@ def _figure_json_for_hydrology_inputs(sample_inputs_df: pd.DataFrame, specs, bin
         col = (index % cols) + 1
         values = panel["values"]
         fig.add_trace(
-            go.Histogram(
-                x=values,
-                nbinsx=bins,
-                marker={"color": "#2563eb", "line": {"color": "rgba(30, 64, 175, 0.35)", "width": 0.6}},
-                hovertemplate="%{x:.4g}<br>Count: %{y}<extra></extra>",
-                showlegend=False,
-            ),
+            _prebinned_histogram_trace(values, bins),
             row=row,
             col=col,
         )
@@ -2254,7 +2260,25 @@ def _figure_json_for_hydrology_inputs(sample_inputs_df: pd.DataFrame, specs, bin
         fig.update_yaxes(title_text="Number of Realizations", row=row, col=col, automargin=True)
 
     apply_modern_subplots_layout(fig, rows=rows)
+    fig.update_layout(bargap=0)
     return fig.to_json()
+
+
+def _prebinned_histogram_trace(values, bins: int) -> go.Bar:
+    v = np.asarray(values, dtype=float)
+    v_min, v_max = float(v.min()), float(v.max())
+    hist_range = (v_min, v_max) if v_min != v_max else (v_min - 0.5, v_max + 0.5)
+    counts, bin_edges = np.histogram(v, bins=bins, range=hist_range)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    bin_width = float(bin_edges[1] - bin_edges[0]) if len(bin_edges) > 1 else 1.0
+    return go.Bar(
+        x=bin_centers.tolist(),
+        y=counts.tolist(),
+        width=bin_width,
+        marker={"color": "#2563eb", "line": {"color": "rgba(30, 64, 175, 0.35)", "width": 0.6}},
+        hovertemplate="%{x:.4g}<br>Count: %{y}<extra></extra>",
+        showlegend=False,
+    )
 
 
 def _figure_json_for_fault(
@@ -2292,13 +2316,7 @@ def _figure_json_for_fault(
         col = (index % cols) + 1
         values = panel["values"]
         fig.add_trace(
-            go.Histogram(
-                x=values,
-                nbinsx=bins,
-                marker={"color": "#2563eb", "line": {"color": "rgba(30, 64, 175, 0.35)", "width": 0.6}},
-                hovertemplate="%{x:.4g}<br>Count: %{y}<extra></extra>",
-                showlegend=False,
-            ),
+            _prebinned_histogram_trace(values, bins),
             row=row,
             col=col,
         )
@@ -2313,6 +2331,7 @@ def _figure_json_for_fault(
         fig.update_yaxes(title_text="Number of Realizations", row=row, col=col, automargin=True)
 
     apply_modern_subplots_layout(fig, rows=rows)
+    fig.update_layout(bargap=0)
     return fig.to_json()
 
 
@@ -2646,6 +2665,349 @@ def save_input_distribution_histograms_artifact(
         return None
 
 
+def _fault_sensitivity_tornado_html(
+    *,
+    title: str,
+    fault_payload: dict,
+    default_fault: str,
+    x_label: str,
+    color_min: float,
+    color_max: float,
+):
+    title_html = html.escape(title)
+    payload_json = json.dumps(fault_payload, separators=(",", ":"))
+    default_fault_json = json.dumps(default_fault)
+    title_json = json.dumps(title)
+    x_label_json = json.dumps(x_label)
+    config_json = json.dumps(PLOTLY_CONFIG)
+    color_scale_json = json.dumps(SLIP_PRESSURE_COLOR_SCALE, separators=(",", ":"))
+    color_min_json = json.dumps(color_min)
+    color_max_json = json.dumps(color_max)
+    fault_options = "\n".join(
+        f'<option value="{html.escape(str(fault_id))}"{" selected" if str(fault_id) == str(default_fault) else ""}>Fault {html.escape(str(fault_id))}</option>'
+        for fault_id in fault_payload.keys()
+    )
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {{
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: {MODERN_PAPER_BG};
+      color: {MODERN_TEXT_COLOR};
+      font-family: {MODERN_FONT_FAMILY};
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }}
+    .viewer {{
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: {MODERN_PAPER_BG};
+    }}
+    .toolbar {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 50px;
+      padding: 8px 12px;
+      border-bottom: 1px solid {MODERN_BORDER_COLOR};
+      box-sizing: border-box;
+      background: {MODERN_CONTROL_BG};
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+    }}
+    .toolbar-title {{
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }}
+    .fault-select {{
+      min-width: 180px;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      padding: 6px 8px;
+      font: inherit;
+    }}
+    .content {{
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(250px, 280px);
+      gap: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: hidden;
+    }}
+    .plot-panel, .control-panel {{
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 10px;
+      box-shadow: {MODERN_SHADOW};
+      overflow: hidden;
+      background: {MODERN_PLOT_BG};
+    }}
+    #plot {{
+      width: 100%;
+      height: 100%;
+    }}
+    .control-panel {{
+      background: {MODERN_CONTROL_BG};
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: auto;
+    }}
+    .control-title {{
+      margin-bottom: 6px;
+      font-weight: 700;
+      font-size: 13px;
+    }}
+    .legend-note {{
+      margin-bottom: 8px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+      font-size: 11.5px;
+      line-height: 1.4;
+    }}
+    .colorbar-ramp {{
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      background: linear-gradient(90deg, #800000 0%, #ff0000 8%, #ff5a00 18%, #ffc300 28%, #ffff00 35%, #ffff00 67%, #aad400 78%, #61b000 88%, #007f00 100%);
+    }}
+    .colorbar-values {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 4px;
+      font-size: 11px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+    }}
+    .range-row {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }}
+    .range-field {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11.5px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+    }}
+    .range-field input {{
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      font: inherit;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      padding: 6px 8px;
+    }}
+    .legend-button {{
+      margin-top: 8px;
+      width: 100%;
+      font: inherit;
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      background: {MODERN_PLOT_BG};
+      color: {MODERN_TEXT_COLOR};
+      padding: 6px 10px;
+      cursor: pointer;
+    }}
+    @media (max-width: 780px) {{
+      .toolbar {{ align-items: flex-start; flex-wrap: wrap; }}
+      .toolbar-title {{ width: 100%; flex: 0 0 100%; }}
+      .content {{ grid-template-columns: 1fr; grid-template-rows: minmax(260px, 1fr) minmax(170px, auto); }}
+    }}
+  </style>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <div class="viewer">
+    <div class="toolbar">
+      <div class="toolbar-title">{title_html}</div>
+      <select id="fault-select" class="fault-select" onchange="renderSelectedFault()">
+        {fault_options}
+      </select>
+    </div>
+    <div class="content">
+      <div class="plot-panel"><div id="plot"></div></div>
+      <aside class="control-panel" aria-label="Pore Pressure to Slip color controls">
+        <div class="control-title">Pore Pressure to Slip</div>
+        <div class="legend-note">Adjust the pore-pressure-to-slip range to recolor the selected fault's tornado bars.</div>
+        <div class="colorbar">
+          <div class="colorbar-ramp" aria-hidden="true"></div>
+          <div class="colorbar-values"><span id="colorbar-min"></span><span id="colorbar-max"></span></div>
+        </div>
+        <div class="range-row">
+          <label class="range-field">Min PSI
+            <input id="pressure-min" type="number" step="any" oninput="handleColorRangeInput()">
+          </label>
+          <label class="range-field">Max PSI
+            <input id="pressure-max" type="number" step="any" oninput="handleColorRangeInput()">
+          </label>
+        </div>
+        <button type="button" class="legend-button" onclick="resetColorRange()">Reset Range</button>
+      </aside>
+    </div>
+  </div>
+  <script>
+    const title = {title_json};
+    const faultPayload = {payload_json};
+    const defaultFault = {default_fault_json};
+    const xLabel = {x_label_json};
+    const plotConfig = {config_json};
+    const colorScale = {color_scale_json};
+    const autoColorMin = {color_min_json};
+    const autoColorMax = {color_max_json};
+
+    function formatPressure(value) {{
+      return Number.isFinite(value) ? value.toLocaleString(undefined, {{ maximumFractionDigits: 2 }}) + ' psi' : '';
+    }}
+
+    function hexToRgb(hex) {{
+      const cleaned = String(hex).replace('#', '');
+      return [
+        parseInt(cleaned.substring(0, 2), 16),
+        parseInt(cleaned.substring(2, 4), 16),
+        parseInt(cleaned.substring(4, 6), 16)
+      ];
+    }}
+
+    function mixColor(start, end, ratio) {{
+      const a = hexToRgb(start);
+      const b = hexToRgb(end);
+      return 'rgb(' +
+        Math.round(a[0] + (b[0] - a[0]) * ratio) + ',' +
+        Math.round(a[1] + (b[1] - a[1]) * ratio) + ',' +
+        Math.round(a[2] + (b[2] - a[2]) * ratio) + ')';
+    }}
+
+    function selectedColorRange() {{
+      const minValue = Number(document.getElementById('pressure-min').value);
+      const maxValue = Number(document.getElementById('pressure-max').value);
+      if (Number.isFinite(minValue) && Number.isFinite(maxValue) && maxValue > minValue) {{
+        return {{ minValue, maxValue }};
+      }}
+      return {{ minValue: autoColorMin, maxValue: autoColorMax }};
+    }}
+
+    function scaledColor(value) {{
+      const colorRange = selectedColorRange();
+      const raw = Number(value);
+      if (!Number.isFinite(raw) || colorRange.maxValue <= colorRange.minValue) return '#16a34a';
+      const normalized = Math.max(0, Math.min(1, (raw - colorRange.minValue) / (colorRange.maxValue - colorRange.minValue)));
+      for (let i = 1; i < colorScale.length; i++) {{
+        const previous = colorScale[i - 1];
+        const current = colorScale[i];
+        if (normalized <= current[0]) {{
+          const span = current[0] - previous[0] || 1;
+          return mixColor(previous[1], current[1], (normalized - previous[0]) / span);
+        }}
+      }}
+      return colorScale[colorScale.length - 1][1];
+    }}
+
+    function selectedFaultId() {{
+      return document.getElementById('fault-select').value || defaultFault;
+    }}
+
+    function selectedBaselineSlipPressure() {{
+      const fault = faultPayload[selectedFaultId()];
+      return fault ? Number(fault.baselineSlipPressure) : NaN;
+    }}
+
+    function updateColorbarLabels() {{
+      const colorRange = selectedColorRange();
+      document.getElementById('colorbar-min').textContent = formatPressure(colorRange.minValue);
+      document.getElementById('colorbar-max').textContent = formatPressure(colorRange.maxValue);
+    }}
+
+    function handleColorRangeInput() {{
+      updateColorbarLabels();
+      renderSelectedFault();
+    }}
+
+    function resetColorRange() {{
+      document.getElementById('pressure-min').value = Number(autoColorMin).toFixed(3);
+      document.getElementById('pressure-max').value = Number(autoColorMax).toFixed(3);
+      handleColorRangeInput();
+    }}
+
+    function renderSelectedFault() {{
+      const faultId = selectedFaultId();
+      const fault = faultPayload[faultId] || faultPayload[defaultFault];
+      if (!fault) return;
+      const baselineSlipPressure = Number(fault.baselineSlipPressure);
+      const barColor = scaledColor(baselineSlipPressure);
+      const customdata = fault.labels.map((label, index) => [
+        fault.lowSlipPressure[index],
+        fault.highSlipPressure[index],
+        baselineSlipPressure,
+        fault.impact[index],
+        fault.method[index]
+      ]);
+      const trace = {{
+        type: 'bar',
+        orientation: 'h',
+        name: 'Sensitivity range',
+        x: fault.rangeWidth,
+        base: fault.lowSlipPressure,
+        y: fault.labels,
+        marker: {{ color: barColor, line: {{ color: 'rgba(15, 23, 42, 0.28)', width: 0.8 }} }},
+        customdata,
+        hovertemplate: 'Fault: ' + faultId + '<br>%{{y}}<br>' +
+          'Low slip pressure: %{{customdata[0]:,.2f}} psi<br>' +
+          'High slip pressure: %{{customdata[1]:,.2f}} psi<br>' +
+          'Baseline slip pressure: %{{customdata[2]:,.2f}} psi<br>' +
+          'Impact: %{{customdata[3]:+,.2f}} psi<br>' +
+          'Method: %{{customdata[4]}}<extra></extra>'
+      }};
+      const layout = {{
+        title: {{ text: title + ': Fault ' + faultId, x: 0.01, xanchor: 'left' }},
+        paper_bgcolor: '{MODERN_PAPER_BG}',
+        plot_bgcolor: '{MODERN_PLOT_BG}',
+        font: {{ family: '{MODERN_FONT_FAMILY}', color: '{MODERN_TEXT_COLOR}' }},
+        margin: {{ l: 150, r: 30, t: 56, b: 58 }},
+        xaxis: {{ title: xLabel, gridcolor: '{MODERN_GRID_COLOR}', zerolinecolor: '{MODERN_AXIS_COLOR}' }},
+        yaxis: {{ title: '', automargin: true }},
+        barmode: 'overlay',
+        bargap: 0.22,
+        showlegend: false,
+        shapes: [{{
+          type: 'line',
+          xref: 'x',
+          yref: 'paper',
+          x0: baselineSlipPressure,
+          x1: baselineSlipPressure,
+          y0: 0,
+          y1: 1,
+          line: {{ color: '#111827', width: 1 }}
+        }}]
+      }};
+      Plotly.react(document.getElementById('plot'), [trace], layout, plotConfig);
+    }}
+
+    resetColorRange();
+  </script>
+</body>
+</html>
+"""
+
+
 def save_uncertainty_tornado_artifact(
     helper,
     step_index: int,
@@ -2691,96 +3053,46 @@ def save_uncertainty_tornado_artifact(
                     .to_dict()
                 )
 
-            fig = go.Figure()
-            trace_faults = []
+            fault_payload = {}
+            baseline_values = []
             for fault_id in fault_ids:
                 fault_df = graph_df[graph_df["FaultID"] == fault_id].sort_values("abs_impact", ascending=True)
-                visible = fault_id == default_fault
                 baseline_slip_pressure = baseline_by_fault.get(fault_id)
                 if baseline_slip_pressure is None or not np.isfinite(baseline_slip_pressure):
                     baseline_slip_pressure = float(
                         ((fault_df["low_slip_pressure"] + fault_df["high_slip_pressure"]) / 2.0).median()
                     )
+                baseline_values.append(float(baseline_slip_pressure))
                 range_width = fault_df["high_slip_pressure"] - fault_df["low_slip_pressure"]
-                customdata = np.column_stack([
-                    fault_df["low_slip_pressure"].values,
-                    fault_df["high_slip_pressure"].values,
-                    np.full(len(fault_df), baseline_slip_pressure, dtype=float),
-                    fault_df["impact"].values,
-                    fault_df["method"].values,
-                ])
-                fig.add_trace(go.Bar(
-                    x=range_width,
-                    base=fault_df["low_slip_pressure"],
-                    y=fault_df["label"],
-                    orientation="h",
-                    name="Sensitivity range",
-                    marker={"color": "#16a34a", "line": {"color": "rgba(21, 128, 61, 0.45)", "width": 0.8}},
-                    customdata=customdata,
-                    visible=visible,
-                    hovertemplate=(
-                        "Fault: " + fault_id + "<br>%{y}<br>"
-                        "Low slip pressure: %{customdata[0]:,.2f} psi<br>"
-                        "High slip pressure: %{customdata[1]:,.2f} psi<br>"
-                        "Baseline slip pressure: %{customdata[2]:,.2f} psi<br>"
-                        "Impact: %{customdata[3]:+,.2f} psi<br>"
-                        "Method: %{customdata[4]}<extra></extra>"
-                    ),
-                ))
-                trace_faults.append(fault_id)
+                fault_payload[str(fault_id)] = {
+                    "labels": [str(value) for value in fault_df["label"]],
+                    "lowSlipPressure": [float(value) for value in fault_df["low_slip_pressure"]],
+                    "highSlipPressure": [float(value) for value in fault_df["high_slip_pressure"]],
+                    "rangeWidth": [float(value) for value in range_width],
+                    "impact": [float(value) for value in fault_df["impact"]],
+                    "method": [str(value) for value in fault_df["method"]],
+                    "baselineSlipPressure": float(baseline_slip_pressure),
+                }
 
-            buttons = []
-            for fault_id in fault_ids:
-                visible = [trace_fault == fault_id for trace_fault in trace_faults]
-                baseline_slip_pressure = baseline_by_fault.get(fault_id)
-                if baseline_slip_pressure is None or not np.isfinite(baseline_slip_pressure):
-                    fault_df = graph_df[graph_df["FaultID"] == fault_id]
-                    baseline_slip_pressure = float(
-                        ((fault_df["low_slip_pressure"] + fault_df["high_slip_pressure"]) / 2.0).median()
-                    )
-                buttons.append({
-                    "label": f"Fault {fault_id}",
-                    "method": "update",
-                    "args": [
-                        {"visible": visible},
-                        {
-                            "title": {"text": f"{title}: Fault {fault_id}", "x": 0.01, "xanchor": "left"},
-                            "shapes": [{
-                                "type": "line",
-                                "xref": "x",
-                                "yref": "paper",
-                                "x0": baseline_slip_pressure,
-                                "x1": baseline_slip_pressure,
-                                "y0": 0,
-                                "y1": 1,
-                                "line": {"color": "#111827", "width": 1},
-                            }],
-                        },
-                    ],
-                })
+            color_min = min(baseline_values)
+            color_max = max(baseline_values)
+            if color_min == color_max:
+                color_min -= 1.0
+                color_max += 1.0
 
-            apply_scientific_layout(fig, x_title=x_label, y_title="", title=f"{title}: Fault {default_fault}")
-            fig.update_layout(
-                barmode="overlay",
-                bargap=0.22,
-                updatemenus=[modern_updatemenu(buttons, y=1.16)],
-                showlegend=False,
-                shapes=[{
-                    "type": "line",
-                    "xref": "x",
-                    "yref": "paper",
-                    "x0": baseline_by_fault.get(default_fault, 0.0),
-                    "x1": baseline_by_fault.get(default_fault, 0.0),
-                    "y0": 0,
-                    "y1": 1,
-                    "line": {"color": "#111827", "width": 1},
-                }],
+            html_text = _fault_sensitivity_tornado_html(
+                title=title,
+                fault_payload=fault_payload,
+                default_fault=str(default_fault),
+                x_label=x_label,
+                color_min=round(float(color_min), 6),
+                color_max=round(float(color_max), 6),
             )
-            return write_plotly_artifact(
+            return _write_html_artifact(
                 helper,
-                fig,
-                artifact_key,
-                title,
+                artifact_key=artifact_key,
+                title=title,
+                html_text=html_text,
                 caption=f"Interactive {title.lower()} generated by FSP.",
                 display_order=display_order,
                 preferred_height=540,

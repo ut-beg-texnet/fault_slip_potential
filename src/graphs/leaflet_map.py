@@ -106,6 +106,17 @@ def _suppress_layer_legend(layer: Optional[dict]):
     return layer
 
 
+def _fault_midpoint_style(style: dict) -> dict:
+    midpoint_style = dict(style)
+    midpoint_style.update({
+        "radius": 5,
+        "weight": 1,
+        "opacity": 0.95,
+        "fillOpacity": 0.82,
+    })
+    return midpoint_style
+
+
 def _relative_to_scratch(helper, path: str) -> str:
     return os.path.relpath(os.path.abspath(path), os.path.abspath(helper.scratchPath))
 
@@ -642,7 +653,29 @@ def save_fault_results_map_artifact(
 
         layer = _add_filter_metadata(layer, "fault-results", is_all=True)
         fault_layers = [layer]
+        bounds_list = [bounds]
         fault_item_keys = []
+        midpoint_layer = None
+        if "wkt" in df.columns and has_columns(df, ["Latitude(WGS84)", "Longitude(WGS84)"]):
+            midpoint_layer, midpoint_bounds = _point_layer(
+                helper,
+                key="fault-midpoints",
+                title=f"{title} Midpoints",
+                df=df,
+                latitude_column="Latitude(WGS84)",
+                longitude_column="Longitude(WGS84)",
+                popup_fields=popup_fields,
+                style=_fault_midpoint_style(style),
+                value_column=value_column,
+                legend_title=legend_title,
+                field_labels=field_labels,
+            )
+            midpoint_layer = _suppress_layer_legend(midpoint_layer)
+            midpoint_layer = _add_filter_metadata(midpoint_layer, "fault-results", is_all=True)
+            if midpoint_layer is not None:
+                fault_layers.append(midpoint_layer)
+            if midpoint_bounds is not None:
+                bounds_list.append(midpoint_bounds)
         if fault_id_col:
             for item_index, (_, fault_row) in enumerate(df.iterrows(), start=1):
                 fault_id = str(fault_row.get(fault_id_col, f"Fault {item_index}"))
@@ -681,9 +714,27 @@ def save_fault_results_map_artifact(
                 fault_layers.append(single_layer)
                 if single_layer:
                     fault_item_keys.append(single_layer["key"])
+                if "wkt" in df.columns and has_columns(single_fault_df, ["Latitude(WGS84)", "Longitude(WGS84)"]):
+                    single_midpoint_layer, _ = _point_layer(
+                        helper,
+                        key=f"fault-midpoint-{item_index}",
+                        title=f"{fault_id} Midpoint",
+                        df=single_fault_df,
+                        latitude_column="Latitude(WGS84)",
+                        longitude_column="Longitude(WGS84)",
+                        popup_fields=popup_fields,
+                        style=_fault_midpoint_style(style),
+                        visible=False,
+                        value_column=value_column,
+                        legend_title=legend_title,
+                        field_labels=field_labels,
+                    )
+                    single_midpoint_layer = _suppress_layer_legend(single_midpoint_layer)
+                    single_midpoint_layer = _add_filter_metadata(single_midpoint_layer, "fault-results", item_index)
+                    if single_midpoint_layer is not None:
+                        fault_layers.append(single_midpoint_layer)
 
         layers = fault_layers
-        bounds_list = [bounds]
         filter_groups = [_filter_group("fault-results", "Faults", "fault-results", fault_item_keys)]
 
         if well_df is not None and not well_df.empty:

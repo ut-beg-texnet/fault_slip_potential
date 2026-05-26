@@ -139,15 +139,20 @@ def test_geomechanics_map_manifest_includes_faults_wells_and_dynamic_range_contr
     manifest = json.load(open(output_path, encoding="utf-8"))
     layer_keys = [layer["key"] for layer in manifest["layers"]]
     assert "fault-results" in layer_keys
+    assert "fault-midpoints" in layer_keys
     assert "fault-result-1" in layer_keys
+    assert "fault-midpoint-1" in layer_keys
     assert "fault-result-2" in layer_keys
+    assert "fault-midpoint-2" in layer_keys
     assert "injection-wells" in layer_keys
     assert "injection-well-1" in layer_keys
     assert "injection-well-2" in layer_keys
     assert {group["key"] for group in manifest["filterControls"]["groups"]} == {"fault-results", "injection-wells"}
     fault_layer = next(layer for layer in manifest["layers"] if layer["key"] == "fault-results")
+    midpoint_layer = next(layer for layer in manifest["layers"] if layer["key"] == "fault-midpoints")
     wells_layer = next(layer for layer in manifest["layers"] if layer["key"] == "injection-wells")
     fault_item_layer = next(layer for layer in manifest["layers"] if layer["key"] == "fault-result-1")
+    midpoint_item_layer = next(layer for layer in manifest["layers"] if layer["key"] == "fault-midpoint-1")
     assert fault_layer["type"] == "line"
     assert fault_layer["style"]["valueColumn"] == "slip_pressure"
     assert fault_layer["style"]["legendTitle"] == "Deterministic Pore Pressure to Slip"
@@ -159,6 +164,15 @@ def test_geomechanics_map_manifest_includes_faults_wells_and_dynamic_range_contr
     assert "legendTitle" not in fault_item_layer["style"]
     assert "allowUserRange" not in fault_item_layer["style"]
     assert fault_item_layer["style"]["valueColumn"] == "slip_pressure"
+    assert midpoint_layer["type"] == "point"
+    assert midpoint_layer["filter"]["groupKey"] == "fault-results"
+    assert midpoint_layer["filter"]["isAll"] is True
+    assert midpoint_layer["style"]["valueColumn"] == "slip_pressure"
+    assert midpoint_layer["style"]["colorScale"] == fault_layer["style"]["colorScale"]
+    assert "legendTitle" not in midpoint_layer["style"]
+    assert "allowUserRange" not in midpoint_layer["style"]
+    assert midpoint_item_layer["filter"]["itemValue"] == fault_item_layer["filter"]["itemValue"]
+    assert midpoint_item_layer["style"]["valueColumn"] == "slip_pressure"
     assert wells_layer["key"] == "injection-wells"
     assert wells_layer["type"] == "point"
     fault_layer_df = pd.read_csv(tmp_path / fault_layer["source"]["path"])
