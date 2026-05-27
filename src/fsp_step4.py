@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import numpy as np
 import pandas as pd
 from datetime import date
+from joblib import Parallel, delayed
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.hydrology.params import calcST
 from fsp.hydrology.pressure_field import (
@@ -33,6 +34,18 @@ from graphs.scientific import save_radial_curves_artifact
 
 STEP = 3   # 0-based index for Step 4
 STEP_GEO = 1  # Step 2
+
+
+def _compute_well_grid_p(wd, grid_lats_flat, grid_lons_flat, grid_shape, STRho, cutoff_date):
+    """Compute the pressure grid contribution for a single well.
+
+    Defined at module level so joblib (loky backend) can serialise it via cloudpickle.
+    References module-level imports ``haversine_distance`` and
+    ``pfieldcalc_all_rates_for_distances`` which cloudpickle captures automatically.
+    """
+    eval_days = float((cutoff_date - wd.start_date).days + 1)
+    dist_m = haversine_distance(grid_lats_flat, grid_lons_flat, wd.latitude, wd.longitude) * 1000.0
+    return pfieldcalc_all_rates_for_distances(dist_m, STRho, wd.days, wd.rates, eval_days).reshape(grid_shape)
 
 
 def _get_injection_path(helper):
@@ -94,15 +107,18 @@ def main():
         fault_ids = fault_df["FaultID"].astype(str).values
 
         fault_distance_m = well_fault_distances_m(well_data_list, fault_lats, fault_lons)
-        dp_faults = np.zeros(len(fault_df), dtype=float)
-        for wi, wd in enumerate(well_data_list):
-            if len(wd.days) == 0:
-                continue
-            eval_days = float((cutoff_date - wd.start_date).days + 1)
-            dp_faults += pfieldcalc_all_rates_for_distances(
-                fault_distance_m[wi], STRho, wd.days, wd.rates, eval_days
+        active_fault_wells = [(wi, wd) for wi, wd in enumerate(well_data_list) if len(wd.days) > 0]
+        per_well_fault_p = Parallel(n_jobs=-1, backend="loky")(
+            delayed(pfieldcalc_all_rates_for_distances)(
+                fault_distance_m[wi], STRho, wd.days, wd.rates,
+                float((cutoff_date - wd.start_date).days + 1)
             )
-        dp_faults = np.maximum(dp_faults, 0.0)
+            for wi, wd in active_fault_wells
+        )
+        dp_faults = np.maximum(
+            np.sum(per_well_fault_p, axis=0) if per_well_fault_p else np.zeros(len(fault_df), dtype=float),
+            0.0,
+        )
 
         # ---- Pressure grid (raster overlay) ----
         well_lats = np.array([wd.latitude for wd in well_data_list], dtype=float)
@@ -117,7 +133,6 @@ def main():
             min_margin_km=1.0,
         )
 
-        total_grid = np.zeros_like(lat_grid)
         per_well_grid_rows = []
         per_well_grids_enabled = (
             helper.getParameterStateWithStepIndexAndParamName(
@@ -127,27 +142,22 @@ def main():
         grid_shape = lat_grid.shape
         grid_lats_flat = lat_grid.ravel()
         grid_lons_flat = lon_grid.ravel()
-        for wd in well_data_list:
-            if len(wd.days) == 0:
-                continue
-            eval_days = float((cutoff_date - wd.start_date).days + 1)
-            grid_distance_m = (
-                haversine_distance(
-                    grid_lats_flat, grid_lons_flat, wd.latitude, wd.longitude
-                )
-                * 1000.0
-            )
-            grid_p = pfieldcalc_all_rates_for_distances(
-                grid_distance_m, STRho, wd.days, wd.rates, eval_days
-            ).reshape(grid_shape)
-            total_grid += np.maximum(grid_p, 0.0)
-            if per_well_grids_enabled:
-                well_grid_df = reformat_pressure_grid_to_heatmap(
-                    lat_grid, lon_grid, grid_p
-                )
+        active_grid_wells = [wd for wd in well_data_list if len(wd.days) > 0]
+        per_well_grid_pressures = Parallel(n_jobs=-1, backend="loky")(
+            delayed(_compute_well_grid_p)(wd, grid_lats_flat, grid_lons_flat, grid_shape, STRho, cutoff_date)
+            for wd in active_grid_wells
+        )
+        # Sum each well's clipped contribution (matches original per-well np.maximum before accumulation)
+        total_grid = np.maximum(
+            np.sum([np.maximum(gp, 0.0) for gp in per_well_grid_pressures], axis=0)
+            if per_well_grid_pressures else np.zeros_like(lat_grid),
+            0.0,
+        )
+        if per_well_grids_enabled:
+            for wd, grid_p in zip(active_grid_wells, per_well_grid_pressures):
+                well_grid_df = reformat_pressure_grid_to_heatmap(lat_grid, lon_grid, grid_p)
                 well_grid_df.insert(0, "WellID", wd.well_id)
                 per_well_grid_rows.append(well_grid_df)
-        total_grid = np.maximum(total_grid, 0.0)
 
         heatmap_df = reformat_pressure_grid_to_heatmap(lat_grid, lon_grid, total_grid)
         if per_well_grids_enabled:
@@ -178,22 +188,21 @@ def main():
         # ---- Radial curves (pressure vs distance for each well) ----
         r_km = np.linspace(0.1, 50.0, 200)
         r_m = r_km * 1000.0
-        radial_rows = []
+        radial_dfs = []
         for wd in well_data_list:
             if len(wd.days) == 0:
                 continue
             eval_days = float((cutoff_date - wd.start_date).days + 1)
-            p_radial = pressureScenario_Rall(wd.rates, wd.days, r_m, STRho, eval_days)
-            for rk, pv in zip(r_km, p_radial):
-                radial_rows.append({
-                    "ID": wd.well_id,
-                    "WellID": wd.well_id,
-                    "Distance_km": float(rk),
-                    "Pressure_psi": float(pv),
-                    "distance_km": float(rk),
-                    "pressure_psi": float(pv),
-                })
-        radial_df = pd.DataFrame(radial_rows)
+            p_radial = pressureScenario_Rall(wd.rates, wd.days, r_m, STRho, eval_days).astype(float)
+            radial_dfs.append(pd.DataFrame({
+                "ID": wd.well_id,
+                "WellID": wd.well_id,
+                "Distance_km": r_km,
+                "Pressure_psi": p_radial,
+                "distance_km": r_km,
+                "pressure_psi": p_radial,
+            }))
+        radial_df = pd.concat(radial_dfs, ignore_index=True) if radial_dfs else pd.DataFrame()
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "radial_curves_data", radial_df)
         save_radial_curves_artifact(helper, STEP, radial_df)
 

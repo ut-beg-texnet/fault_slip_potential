@@ -1928,8 +1928,8 @@ def save_cdf_artifact(
                     det_slip_pressure = round(float(det_values.iloc[0]), 6)
             series_payload[str(fault_id)] = {
                 "label": str(fault_id),
-                "x": [round(float(v), 6) for v in fault_df["slip_pressure"]],
-                "y": [round(float(v), 6) for v in fault_df["probability"]],
+                "x": fault_df["slip_pressure"].round(6).tolist(),
+                "y": fault_df["probability"].round(6).tolist(),
                 "mode": "lines",
                 "hovertemplate": "Pressure: %{x:,.2f} psi<br>Probability: %{y:.3f}<extra></extra>",
                 "detSlipPressure": det_slip_pressure,
@@ -2034,12 +2034,12 @@ def save_probabilistic_hydrology_cdf_artifact(
                 "fsp": fsp,
                 "stats": stats,
                 "hydrology": {
-                    "x": [round(float(v), 6) for v in hyd_fault_df["slip_pressure"]],
-                    "y": [round(float(v), 6) for v in hyd_fault_df["probability"]],
+                    "x": hyd_fault_df["slip_pressure"].round(6).tolist(),
+                    "y": hyd_fault_df["probability"].round(6).tolist(),
                 },
                 "geomechanics": {
-                    "x": [round(float(v), 6) for v in geo_fault_df["slip_pressure"]],
-                    "y": [round(float(v), 6) for v in geo_fault_df["probability"]],
+                    "x": geo_fault_df["slip_pressure"].round(6).tolist(),
+                    "y": geo_fault_df["probability"].round(6).tolist(),
                 },
             }
 
@@ -3323,8 +3323,8 @@ def save_time_series_artifact(
         for fault_id, fault_df in graph_df.groupby(graph_df["ID"].astype(str), sort=True):
             fault_df = fault_df.sort_values("Year")
             series_payload[str(fault_id)] = {
-                "x": [int(v) for v in fault_df["Year"]],
-                "y": [round(float(v), 6) for v in fault_df[value_column]],
+                "x": fault_df["Year"].astype(int).tolist(),
+                "y": fault_df[value_column].round(6).tolist(),
                 "mode": "lines+markers",
                 "hovertemplate": f"Fault: %{{fullData.name}}<br>Year: %{{x:.0f}}<br>{y_label}: %{{y:,.3f}}<extra></extra>",
             }

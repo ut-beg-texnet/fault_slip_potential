@@ -300,11 +300,12 @@ def save_mohr_diagram_graph_artifact(
         if cmax <= cmin:
             cmax = cmin + 1.0
 
-        hover_text = [
-            f"Fault: {row['id']}<br>σ: {float(row['x']):,.2f} psi<br>"
-            f"τ: {float(row['y']):,.2f} psi<br>Delta PP to slip: {float(row[color_column]):,.2f} PSI"
-            for _, row in fault_df.iterrows()
-        ]
+        hover_text = (
+            "Fault: " + fault_df["id"].astype(str)
+            + "<br>σ: " + fault_df["x"].map("{:,.2f}".format) + " psi"
+            + "<br>τ: " + fault_df["y"].map("{:,.2f}".format) + " psi"
+            + "<br>Delta PP to slip: " + fault_df[color_column].map("{:,.2f}".format) + " PSI"
+        ).tolist()
         all_x.extend(fault_df["x"].tolist())
         all_y.extend(fault_df["y"].tolist())
 

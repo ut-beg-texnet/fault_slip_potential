@@ -10,10 +10,16 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import numpy as np
 import pandas as pd
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.geomechanics.stress import calculate_absolute_stresses
-from fsp.geomechanics.slip import analyze_fault
+from fsp.geomechanics.slip import (
+    calculate_fault_effective_stresses,
+    calculate_slip_pressure,
+    calculate_cff,
+    calculate_scu,
+)
 from fsp.geomechanics.mohr import mohr_diagram_data_to_d3_portal
 from graphs.leaflet_map import (
     DETERMINISTIC_GEOMECHANICS_FIELD_LABELS,
@@ -100,27 +106,28 @@ def main():
 
         sV, sh, sH = stress_state.principal_stresses
 
-        # ---- Analyse each fault ----
-        results = []
-        for _, row in faults_df.iterrows():
-            res = analyze_fault(
-                float(row["Strike"]),
-                float(row["Dip"]),
-                friction,
-                stress_state,
-                p0,
-                0.0,
-            )
-            res["FaultID"] = row["FaultID"]
-            results.append(res)
+        # ---- Analyse all faults — vectorised over the full fault array ----
+        strikes = faults_df["Strike"].to_numpy(dtype=float)
+        dips = faults_df["Dip"].to_numpy(dtype=float)
+
+        sig, tau, s11, s22, s33, s12, n1, n2 = calculate_fault_effective_stresses(
+            strikes, dips, stress_state, p0, 0.0
+        )
+        slip_p = np.maximum(
+            calculate_slip_pressure(sig, tau, friction, p0, 1.0, 0.5, 0.0,
+                                    s11, s22, s33, s12, n1, n2),
+            0.0,
+        )
+        cff = np.round(calculate_cff(sig, tau, friction))      # integer-valued (matches original)
+        scu = calculate_scu(sig, tau, friction)
 
         # ---- Build output DataFrame ----
         step2_df = faults_df.copy()
-        step2_df["slip_pressure"] = [round(r["slip_pressure"], 3) for r in results]
-        step2_df["coulomb_failure_function"] = [round(r["coulomb_failure_function"], 3) for r in results]
-        step2_df["shear_capacity_utilization"] = [round(r["shear_capacity_utilization"], 3) for r in results]
-        step2_df["normal_stress"] = [round(r["normal_stress"], 3) for r in results]
-        step2_df["shear_stress"] = [round(r["shear_stress"], 3) for r in results]
+        step2_df["slip_pressure"] = np.round(slip_p, 3)
+        step2_df["coulomb_failure_function"] = np.round(cff, 3)
+        step2_df["shear_capacity_utilization"] = np.round(scu, 3)
+        step2_df["normal_stress"] = np.round(sig, 3)
+        step2_df["shear_stress"] = np.round(tau, 3)
 
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "det_geomechanics_results", step2_df)
         wells_df = _load_map_ready_injection_wells(helper)
@@ -151,10 +158,10 @@ def main():
         )
 
         # ---- Mohr diagram D3 data ----
-        tau_eff = [r["shear_stress"] for r in results]
-        sigma_eff = [r["normal_stress"] for r in results]
-        slip_pressures = [r["slip_pressure"] for r in results]
-        fault_ids = [str(r["FaultID"]) for r in results]
+        tau_eff = tau.tolist()
+        sigma_eff = sig.tolist()
+        slip_pressures = slip_p.tolist()
+        fault_ids = faults_df["FaultID"].astype(str).tolist()
         strikes = list(faults_df["Strike"].astype(float))
 
         # Determine stress regime label

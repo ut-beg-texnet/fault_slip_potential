@@ -48,6 +48,27 @@ def projected_curve(strike, dip, rake_count=181):
     return rho * np.cos(theta), rho * np.sin(theta)
 
 
+def _projected_curves_batch(strikes, dips, rake_count=361):
+    """Vectorised projected curve computation for all faults at once.
+
+    Returns
+    -------
+    all_x, all_y : ndarray of shape (n_faults, rake_count)
+    """
+    strike_rad = (90.0 - np.asarray(strikes, dtype=float)) * np.pi / 180.0  # (n_faults,)
+    dip_rad = np.asarray(dips, dtype=float) * np.pi / 180.0                 # (n_faults,)
+    rake = np.linspace(0.0, np.pi, int(rake_count))                          # (rake_count,)
+    # Broadcast to (n_faults, rake_count)
+    plunge = np.arcsin(np.sin(dip_rad[:, None]) * np.sin(rake[None, :]))
+    trend = strike_rad[:, None] + np.arctan2(
+        np.cos(dip_rad[:, None]) * np.sin(rake[None, :]),
+        np.cos(rake[None, :]),
+    )
+    rho = np.tan(np.pi / 4.0 - plunge / 2.0)
+    theta = trend + np.pi
+    return rho * np.cos(theta), rho * np.sin(theta)
+
+
 def normal_composite_grid(stress_state: StressState, p0: float, friction: float, grid_size: int = 50) -> pd.DataFrame:
     """Evaluate slip pressure over a regular strike/dip grid for the composite stereonet."""
     strikes = np.linspace(0.0, 360.0, int(grid_size))
@@ -462,11 +483,12 @@ def save_stereonet_graph_artifact(
         base_count = len(base_traces) + 1
 
         normal_x, normal_y = fault_normal_projection(faults["Strike"], faults["Dip"])
-        hover = [
-            f"Fault: {row['FaultID']}<br>Strike: {float(row['Strike']):.1f} deg<br>"
-            f"Dip: {float(row['Dip']):.1f} deg<br>Delta PP to slip: {float(row['slip_pressure']):,.2f} PSI"
-            for _, row in faults.iterrows()
-        ]
+        hover = (
+            "Fault: " + faults["FaultID"].astype(str)
+            + "<br>Strike: " + faults["Strike"].map("{:.1f}".format) + " deg"
+            + "<br>Dip: " + faults["Dip"].map("{:.1f}".format) + " deg"
+            + "<br>Delta PP to slip: " + faults["slip_pressure"].map("{:,.2f}".format) + " PSI"
+        ).tolist()
         fig.add_trace(go.Scatter(
             x=normal_x,
             y=normal_y,
@@ -489,20 +511,18 @@ def save_stereonet_graph_artifact(
         ))
         normal_count = 1
 
-        curve_x = []
-        curve_y = []
-        curve_pressure = []
-        curve_hover = []
-        for _, row in faults.iterrows():
-            x, y = projected_curve(row["Strike"], row["Dip"], rake_count=361)
-            slip_pressure = float(row["slip_pressure"])
-            curve_x.extend(x.tolist())
-            curve_y.extend(y.tolist())
-            curve_pressure.extend([slip_pressure] * len(x))
-            curve_hover.extend([
-                f"Fault: {row['FaultID']}<br>Strike: {float(row['Strike']):.1f} deg<br>"
-                f"Dip: {float(row['Dip']):.1f} deg<br>Delta PP to slip: {slip_pressure:,.2f} PSI"
-            ] * len(x))
+        rake_count = 361
+        all_curve_x, all_curve_y = _projected_curves_batch(faults["Strike"], faults["Dip"], rake_count)
+        curve_x = all_curve_x.ravel().tolist()
+        curve_y = all_curve_y.ravel().tolist()
+        curve_pressure = np.repeat(faults["slip_pressure"].to_numpy(dtype=float), rake_count).tolist()
+        fault_hover_base = (
+            "Fault: " + faults["FaultID"].astype(str)
+            + "<br>Strike: " + faults["Strike"].map("{:.1f}".format) + " deg"
+            + "<br>Dip: " + faults["Dip"].map("{:.1f}".format) + " deg"
+            + "<br>Delta PP to slip: " + faults["slip_pressure"].map("{:,.2f}".format) + " PSI"
+        ).to_numpy()
+        curve_hover = np.repeat(fault_hover_base, rake_count).tolist()
         fig.add_trace(go.Scattergl(
             x=curve_x,
             y=curve_y,
