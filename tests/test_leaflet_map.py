@@ -128,6 +128,7 @@ def test_geomechanics_map_manifest_includes_faults_wells_and_dynamic_range_contr
         color="#7c3aed",
         value_column="slip_pressure",
         legend_title="Deterministic Pore Pressure to Slip",
+        value_min_default=0.0,
         well_df=wells_df,
         field_labels=DETERMINISTIC_GEOMECHANICS_FIELD_LABELS,
     )
@@ -156,7 +157,7 @@ def test_geomechanics_map_manifest_includes_faults_wells_and_dynamic_range_contr
     assert fault_layer["type"] == "line"
     assert fault_layer["style"]["valueColumn"] == "slip_pressure"
     assert fault_layer["style"]["legendTitle"] == "Deterministic Pore Pressure to Slip"
-    assert fault_layer["style"]["minValue"] == 100.0
+    assert fault_layer["style"]["minValue"] == 0.0
     assert fault_layer["style"]["maxValue"] == 500.0
     assert fault_layer["style"]["allowUserRange"] is True
     assert fault_layer["fieldLabels"]["slip_pressure"] == "Deterministic Pore Pressure to Slip"
@@ -414,10 +415,19 @@ def test_direct_hydrology_map_html_contains_well_filters_and_fault_lines(tmp_pat
     assert "setAllWellMarkers(true)" in html_text
     assert "fault-controls" in html_text
     assert "well-marker-controls" in html_text
+    assert "map.attributionControl.setPrefix(false)" in html_text
+    assert 'class="section-toggle" aria-expanded="false" aria-controls="fault-section-content"' in html_text
+    assert 'class="section-toggle" aria-expanded="false" aria-controls="well-marker-section-content"' in html_text
+    assert 'id="fault-section-content" class="section-content" hidden' in html_text
+    assert 'id="well-marker-section-content" class="section-content" hidden' in html_text
     assert "sumSelectedGrid" in html_text
     assert "Pressure Front (PSI)" in html_text
     assert "pressure-min" in html_text
     assert "pressure-max" in html_text
+    legend_start = html_text.index('<div class="legend">')
+    toolbar_start = html_text.index('<div class="toolbar">')
+    assert html_text.index('id="pressure-min"', legend_start) > toolbar_start
+    assert html_text.index('id="pressure-max"', legend_start) > toolbar_start
     assert "backdrop-filter: blur(10px)" in html_text
     assert "Inter, Segoe UI" in html_text
     assert "selectedColorRange" in html_text
@@ -496,6 +506,7 @@ def test_mohr_diagram_labels_circles_by_stress_regime(tmp_path):
     assert "\\u03c3V - \\u03c3H" in html_text
     assert "Circle 1" not in html_text
     assert "mohr-controls" in html_text
+    assert 'id="mohr-min-psi" type="number" step="any" value="0.0"' in html_text
     assert "border-radius: 6px" in html_text
 
 

@@ -197,12 +197,23 @@ def _with_fault_wkt(df: pd.DataFrame) -> pd.DataFrame:
     return latlon_to_wkt(df)
 
 
-def _style_with_value_scale(style: dict, df: pd.DataFrame, *, value_column: Optional[str], legend_title: str):
+def _style_with_value_scale(
+    style: dict,
+    df: pd.DataFrame,
+    *,
+    value_column: Optional[str],
+    legend_title: str,
+    value_min_default: Optional[float] = None,
+):
     if not value_column or value_column not in df.columns:
         return style
     min_value, max_value = _numeric_range(df, value_column)
     if min_value is None or max_value is None:
         return style
+    if value_min_default is not None:
+        min_value = float(value_min_default)
+        if max_value <= min_value:
+            max_value = min_value + 1.0
     scaled_style = dict(style)
     scaled_style.update({
         "valueColumn": value_column,
@@ -355,6 +366,7 @@ def _point_layer(
     max_features: int = 5000,
     value_column: Optional[str] = None,
     legend_title: str = "Value",
+    value_min_default: Optional[float] = None,
     field_labels: Optional[dict] = None,
 ):
     required = [latitude_column, longitude_column]
@@ -364,7 +376,13 @@ def _point_layer(
     property_fields = list(dict.fromkeys(popup_fields + ([value_column] if value_column in df.columns else [])))
     columns = list(dict.fromkeys(required + property_fields))
     path = _write_layer_csv(helper, key, df, columns)
-    style = _style_with_value_scale(style, df, value_column=value_column, legend_title=legend_title)
+    style = _style_with_value_scale(
+        style,
+        df,
+        value_column=value_column,
+        legend_title=legend_title,
+        value_min_default=value_min_default,
+    )
     return {
         "key": key,
         "title": title,
@@ -400,6 +418,7 @@ def _wkt_layer(
     max_features: int = 5000,
     value_column: Optional[str] = None,
     legend_title: str = "Value",
+    value_min_default: Optional[float] = None,
     field_labels: Optional[dict] = None,
 ):
     if not has_columns(df, [wkt_column]):
@@ -408,7 +427,13 @@ def _wkt_layer(
     property_fields = list(dict.fromkeys(popup_fields + ([value_column] if value_column in df.columns else [])))
     columns = list(dict.fromkeys([wkt_column] + property_fields))
     path = _write_layer_csv(helper, key, df, columns)
-    style = _style_with_value_scale(style, df, value_column=value_column, legend_title=legend_title)
+    style = _style_with_value_scale(
+        style,
+        df,
+        value_column=value_column,
+        legend_title=legend_title,
+        value_min_default=value_min_default,
+    )
     return {
         "key": key,
         "title": title,
@@ -592,6 +617,7 @@ def save_fault_results_map_artifact(
     color: str,
     value_column: Optional[str] = None,
     legend_title: str = "Value",
+    value_min_default: Optional[float] = None,
     well_df: Optional[pd.DataFrame] = None,
     extra_layers: Optional[list] = None,
     field_labels: Optional[dict] = None,
@@ -630,6 +656,7 @@ def save_fault_results_map_artifact(
                 style=style,
                 value_column=value_column,
                 legend_title=legend_title,
+                value_min_default=value_min_default,
                 field_labels=field_labels,
             )
             bounds = _numeric_bounds(df, "Latitude(WGS84)", "Longitude(WGS84)")
@@ -645,6 +672,7 @@ def save_fault_results_map_artifact(
                 style=style,
                 value_column=value_column,
                 legend_title=legend_title,
+                value_min_default=value_min_default,
                 field_labels=field_labels,
             )
 
@@ -668,6 +696,7 @@ def save_fault_results_map_artifact(
                 style=_fault_midpoint_style(style),
                 value_column=value_column,
                 legend_title=legend_title,
+                value_min_default=value_min_default,
                 field_labels=field_labels,
             )
             midpoint_layer = _suppress_layer_legend(midpoint_layer)
@@ -692,6 +721,7 @@ def save_fault_results_map_artifact(
                         visible=False,
                         value_column=value_column,
                         legend_title=legend_title,
+                        value_min_default=value_min_default,
                         field_labels=field_labels,
                     )
                 else:
@@ -707,6 +737,7 @@ def save_fault_results_map_artifact(
                         visible=False,
                         value_column=value_column,
                         legend_title=legend_title,
+                        value_min_default=value_min_default,
                         field_labels=field_labels,
                     )
                 single_layer = _suppress_layer_legend(single_layer)
@@ -727,6 +758,7 @@ def save_fault_results_map_artifact(
                         visible=False,
                         value_column=value_column,
                         legend_title=legend_title,
+                        value_min_default=value_min_default,
                         field_labels=field_labels,
                     )
                     single_midpoint_layer = _suppress_layer_legend(single_midpoint_layer)

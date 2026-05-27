@@ -203,6 +203,42 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       font-size: 13px;
       color: {MODERN_TEXT_COLOR};
     }}
+    .section-toggle {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      margin: 0;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: {MODERN_TEXT_COLOR};
+      padding: 0;
+      font-weight: 700;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+    }}
+    .section-toggle:hover {{
+      background: transparent;
+      border-color: transparent;
+      box-shadow: none;
+    }}
+    .section-toggle::after {{
+      content: '+';
+      font-size: 16px;
+      line-height: 1;
+      color: {MODERN_MUTED_TEXT_COLOR};
+    }}
+    .section-toggle[aria-expanded="true"]::after {{
+      content: '-';
+    }}
+    .section-content {{
+      margin-top: 8px;
+    }}
+    .section-content[hidden] {{
+      display: none;
+    }}
     .toolbar-section {{
       margin-top: 12px;
       padding-top: 10px;
@@ -228,6 +264,18 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       background: #f8fafc;
       border-color: #94a3b8;
       box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    }}
+    .toolbar .section-toggle {{
+      flex: none;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      box-shadow: none;
+    }}
+    .toolbar .section-toggle:hover {{
+      background: transparent;
+      border-color: transparent;
+      box-shadow: none;
     }}
     .toolbar input[type="search"] {{
       width: 100%;
@@ -277,7 +325,7 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       left: 12px;
       bottom: 12px;
       z-index: 1000;
-      min-width: 210px;
+      min-width: 260px;
       padding: 10px;
       border: 1px solid {MODERN_BORDER_COLOR};
       border-radius: 8px;
@@ -298,6 +346,9 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       display: flex;
       justify-content: space-between;
       gap: 12px;
+    }}
+    .legend .range-row {{
+      margin-top: 10px;
     }}
     .title-chip {{
       position: absolute;
@@ -345,23 +396,32 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
     </div>
     <div id="well-controls"></div>
     <div class="toolbar-section">
-      <div class="toolbar-title">Faults</div>
-      <input id="fault-search" type="search" placeholder="Search faults" oninput="populateLayerControls('fault-controls', faultLayers, selectedFaults, updateFaultLayers, 'fault-search')">
-      <div class="toolbar-row">
-        <button type="button" onclick="setAllFaults(true)">All</button>
-        <button type="button" onclick="setAllFaults(false)">None</button>
+      <button type="button" class="section-toggle" aria-expanded="false" aria-controls="fault-section-content" onclick="toggleSection(this, 'fault-section-content')">Faults</button>
+      <div id="fault-section-content" class="section-content" hidden>
+        <input id="fault-search" type="search" placeholder="Search faults" oninput="populateLayerControls('fault-controls', faultLayers, selectedFaults, updateFaultLayers, 'fault-search')">
+        <div class="toolbar-row">
+          <button type="button" onclick="setAllFaults(true)">All</button>
+          <button type="button" onclick="setAllFaults(false)">None</button>
+        </div>
+        <div id="fault-controls"></div>
       </div>
-      <div id="fault-controls"></div>
     </div>
     <div class="toolbar-section">
-      <div class="toolbar-title">Injection Well Markers</div>
-      <input id="well-marker-search" type="search" placeholder="Search wells" oninput="populateLayerControls('well-marker-controls', wellMarkerLayers, selectedWellMarkers, updateWellMarkerLayers, 'well-marker-search')">
-      <div class="toolbar-row">
-        <button type="button" onclick="setAllWellMarkers(true)">All</button>
-        <button type="button" onclick="setAllWellMarkers(false)">None</button>
+      <button type="button" class="section-toggle" aria-expanded="false" aria-controls="well-marker-section-content" onclick="toggleSection(this, 'well-marker-section-content')">Injection Well Markers</button>
+      <div id="well-marker-section-content" class="section-content" hidden>
+        <input id="well-marker-search" type="search" placeholder="Search wells" oninput="populateLayerControls('well-marker-controls', wellMarkerLayers, selectedWellMarkers, updateWellMarkerLayers, 'well-marker-search')">
+        <div class="toolbar-row">
+          <button type="button" onclick="setAllWellMarkers(true)">All</button>
+          <button type="button" onclick="setAllWellMarkers(false)">None</button>
+        </div>
+        <div id="well-marker-controls"></div>
       </div>
-      <div id="well-marker-controls"></div>
     </div>
+  </div>
+  <div class="legend">
+    <div>Pressure Front (PSI)</div>
+    <div class="legend-ramp"></div>
+    <div class="legend-values"><span id="legend-min">0</span><span id="legend-max">0</span></div>
     <div class="range-row">
       <label class="range-field">Min PSI
         <input id="pressure-min" type="number" step="any" oninput="updatePressureOverlay()">
@@ -370,11 +430,6 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
         <input id="pressure-max" type="number" step="any" oninput="updatePressureOverlay()">
       </label>
     </div>
-  </div>
-  <div class="legend">
-    <div>Pressure Front (PSI)</div>
-    <div class="legend-ramp"></div>
-    <div class="legend-values"><span id="legend-min">0</span><span id="legend-max">0</span></div>
   </div>
   <script>
     const title = {title_json};
@@ -394,6 +449,14 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }}).addTo(map);
+    map.attributionControl.setPrefix(false);
+
+    function toggleSection(button, contentId) {{
+      const content = document.getElementById(contentId);
+      const expanded = button.getAttribute('aria-expanded') === 'true';
+      button.setAttribute('aria-expanded', String(!expanded));
+      content.hidden = expanded;
+    }}
 
     function hexToRgb(hex) {{
       const cleaned = hex.replace('#', '');

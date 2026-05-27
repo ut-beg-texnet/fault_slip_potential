@@ -1249,7 +1249,7 @@ def _multi_curve_selector_plotly_html(
               <button type="button" class="legend-button" onclick="setAllSelection(false)">Hide All</button>
             </div>
           </div>
-          <div class="selector-note">Use the checkboxes to compare one or more {html.escape(selector_subject_plural)}. The list stays scrollable so large runs do not crowd the chart.</div>
+          <div class="selector-note">Use the checkboxes to compare one or more {html.escape(selector_subject_plural)}.</div>
           <div class="selector-master">
             <label class="legend-all">
               <input type="checkbox" id="legend-all" checked onchange="toggleAllFromMaster(this.checked)">
@@ -2639,10 +2639,8 @@ def _fault_sensitivity_tornado_html(
     color_min: float,
     color_max: float,
 ):
-    title_html = html.escape(title)
     payload_json = json.dumps(fault_payload, separators=(",", ":"))
     default_fault_json = json.dumps(default_fault)
-    title_json = json.dumps(title)
     x_label_json = json.dumps(x_label)
     config_json = json.dumps(PLOTLY_CONFIG)
     color_scale_json = json.dumps(SLIP_PRESSURE_COLOR_SCALE, separators=(",", ":"))
@@ -2678,24 +2676,18 @@ def _fault_sensitivity_tornado_html(
     .toolbar {{
       display: flex;
       align-items: center;
+      justify-content: flex-start;
       gap: 12px;
-      min-height: 50px;
+      min-height: 46px;
       padding: 8px 12px;
       border-bottom: 1px solid {MODERN_BORDER_COLOR};
       box-sizing: border-box;
       background: {MODERN_CONTROL_BG};
       box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
     }}
-    .toolbar-title {{
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 700;
-    }}
     .fault-select {{
       min-width: 180px;
+      max-width: min(100%, 520px);
       border: 1px solid {MODERN_BORDER_COLOR};
       border-radius: 6px;
       background: {MODERN_PLOT_BG};
@@ -2708,8 +2700,8 @@ def _fault_sensitivity_tornado_html(
       min-height: 0;
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(250px, 280px);
-      gap: 12px;
-      padding: 12px;
+      gap: 10px;
+      padding: 10px;
       box-sizing: border-box;
       overflow: hidden;
     }}
@@ -2728,7 +2720,7 @@ def _fault_sensitivity_tornado_html(
     }}
     .control-panel {{
       background: {MODERN_CONTROL_BG};
-      padding: 12px;
+      padding: 10px;
       box-sizing: border-box;
       overflow: auto;
     }}
@@ -2738,13 +2730,13 @@ def _fault_sensitivity_tornado_html(
       font-size: 13px;
     }}
     .legend-note {{
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       color: {MODERN_MUTED_TEXT_COLOR};
-      font-size: 11.5px;
-      line-height: 1.4;
+      font-size: 11px;
+      line-height: 1.3;
     }}
     .colorbar-ramp {{
-      height: 10px;
+      height: 9px;
       border-radius: 999px;
       border: 1px solid rgba(15, 23, 42, 0.12);
       background: linear-gradient(90deg, #800000 0%, #ff0000 8%, #ff5a00 18%, #ffc300 28%, #ffff00 35%, #ffff00 67%, #aad400 78%, #61b000 88%, #007f00 100%);
@@ -2760,13 +2752,13 @@ def _fault_sensitivity_tornado_html(
     .range-row {{
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 8px;
+      gap: 6px;
+      margin-top: 6px;
     }}
     .range-field {{
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
       font-size: 11.5px;
       color: {MODERN_MUTED_TEXT_COLOR};
     }}
@@ -2779,22 +2771,21 @@ def _fault_sensitivity_tornado_html(
       border-radius: 6px;
       background: {MODERN_PLOT_BG};
       color: {MODERN_TEXT_COLOR};
-      padding: 6px 8px;
+      padding: 5px 7px;
     }}
     .legend-button {{
-      margin-top: 8px;
+      margin-top: 6px;
       width: 100%;
       font: inherit;
       border: 1px solid {MODERN_BORDER_COLOR};
       border-radius: 6px;
       background: {MODERN_PLOT_BG};
       color: {MODERN_TEXT_COLOR};
-      padding: 6px 10px;
+      padding: 5px 10px;
       cursor: pointer;
     }}
     @media (max-width: 780px) {{
       .toolbar {{ align-items: flex-start; flex-wrap: wrap; }}
-      .toolbar-title {{ width: 100%; flex: 0 0 100%; }}
       .content {{ grid-template-columns: 1fr; grid-template-rows: minmax(260px, 1fr) minmax(170px, auto); }}
     }}
   </style>
@@ -2803,7 +2794,6 @@ def _fault_sensitivity_tornado_html(
 <body>
   <div class="viewer">
     <div class="toolbar">
-      <div class="toolbar-title">{title_html}</div>
       <select id="fault-select" class="fault-select" onchange="renderSelectedFault()">
         {fault_options}
       </select>
@@ -2830,7 +2820,6 @@ def _fault_sensitivity_tornado_html(
     </div>
   </div>
   <script>
-    const title = {title_json};
     const faultPayload = {payload_json};
     const defaultFault = {default_fault_json};
     const xLabel = {x_label_json};
@@ -2942,11 +2931,10 @@ def _fault_sensitivity_tornado_html(
           'Method: %{{customdata[4]}}<extra></extra>'
       }};
       const layout = {{
-        title: {{ text: title + ': Fault ' + faultId, x: 0.01, xanchor: 'left' }},
         paper_bgcolor: '{MODERN_PAPER_BG}',
         plot_bgcolor: '{MODERN_PLOT_BG}',
         font: {{ family: '{MODERN_FONT_FAMILY}', color: '{MODERN_TEXT_COLOR}' }},
-        margin: {{ l: 150, r: 30, t: 56, b: 58 }},
+        margin: {{ l: 150, r: 30, t: 24, b: 58 }},
         xaxis: {{ title: xLabel, gridcolor: '{MODERN_GRID_COLOR}', zerolinecolor: '{MODERN_AXIS_COLOR}' }},
         yaxis: {{ title: '', automargin: true }},
         barmode: 'overlay',
@@ -3060,7 +3048,7 @@ def save_uncertainty_tornado_artifact(
                 html_text=html_text,
                 caption=f"Interactive {title.lower()} generated by FSP.",
                 display_order=display_order,
-                preferred_height=540,
+                preferred_height=600,
             )
 
         if not has_columns(tornado_df, ["label", "min", "max"]):

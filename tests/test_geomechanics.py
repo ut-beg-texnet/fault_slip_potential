@@ -507,6 +507,13 @@ class TestScientificGraphArtifacts:
         assert "baselineSlipPressure" in html
         assert "scaledColor(baselineSlipPressure)" in html
         assert "control-panel" in html
+        assert "toolbar-title" not in html
+        assert "const title =" not in html
+        assert "title + ': Fault '" not in html
+        assert "margin: { l: 150, r: 30, t: 24, b: 58 }" in html
+        assert "padding: 10px;" in html
+        assert "preferredHeight" not in html
+        assert helper.artifacts[-1]["preferredHeight"] == 600
         assert "grid-template-columns: minmax(0, 1fr) minmax(250px, 280px);" in html
         assert "height: 100%;" in html
         assert "height: 100vh;" not in html

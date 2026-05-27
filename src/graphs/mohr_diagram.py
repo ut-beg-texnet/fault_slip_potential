@@ -295,11 +295,10 @@ def save_mohr_diagram_graph_artifact(
             ))
 
         pressures = fault_df[color_column].astype(float).to_numpy()
-        cmin = float(np.nanmin(pressures)) if len(pressures) else 0.0
+        cmin = 0.0
         cmax = float(np.nanmax(pressures)) if len(pressures) else 1.0
-        if cmin == cmax:
-            cmin -= 1.0
-            cmax += 1.0
+        if cmax <= cmin:
+            cmax = cmin + 1.0
 
         hover_text = [
             f"Fault: {row['id']}<br>σ: {float(row['x']):,.2f} psi<br>"

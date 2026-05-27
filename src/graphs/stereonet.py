@@ -118,11 +118,10 @@ def _pressure_range(*frames):
     clean = [float(value) for value in values if math.isfinite(float(value))]
     if not clean:
         return 0.0, 1.0
-    cmin = min(clean)
+    cmin = 0.0
     cmax = max(clean)
-    cmin = min(0.0, cmin)
-    if cmin == cmax:
-        cmax += 1.0
+    if cmax <= cmin:
+        cmax = cmin + 1.0
     return cmin, cmax
 
 

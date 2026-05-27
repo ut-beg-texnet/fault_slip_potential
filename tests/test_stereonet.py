@@ -101,6 +101,7 @@ def test_stereonet_artifact_registers_html_and_dropdown_modes(tmp_path):
     assert "Normal Composite" in html_text
     assert "Delta PP to slip (PSI)" in html_text
     assert "Min PSI" in html_text
+    assert 'id="stereonet-min-psi" type="number" step="any" value="0"' in html_text
     assert "Max PSI" in html_text
     assert "stereonet-controls" in html_text
     assert "Inter, Segoe UI" in html_text

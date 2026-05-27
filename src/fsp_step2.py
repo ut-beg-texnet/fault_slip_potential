@@ -137,6 +137,7 @@ def main():
             color="#7c3aed",
             value_column="slip_pressure",
             legend_title="Deterministic Pore Pressure to Slip",
+            value_min_default=0.0,
             well_df=wells_df,
             field_labels=DETERMINISTIC_GEOMECHANICS_FIELD_LABELS,
         )
