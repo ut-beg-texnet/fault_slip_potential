@@ -583,7 +583,7 @@ def _single_series_plotly_html(
                 <button type="button" class="legend-button" onclick="setAllSelection(false)">Clear All</button>
               </div>
             </div>
-            <div class="legend-note">Use the checkboxes to compare one or more faults. The list below is scrollable so large fault runs stay manageable.</div>
+            <div class="legend-note">Use the checkboxes to compare one or more faults.</div>
             <div id="series-legend" class="series-legend"></div>
           </section>
           <section id="colors-tab" class="tab-panel" aria-label="{color_tab_label_html} Color Range">
