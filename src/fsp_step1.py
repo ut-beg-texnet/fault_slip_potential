@@ -109,7 +109,8 @@ def main():
 
         # D3 injection rate data
         inj_rate_d3 = injection_rate_data_to_d3_bbl_day(inj_df, inj_type)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "injection_rate_d3_data", inj_rate_d3)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "injection_rate_d3_data", inj_rate_d3)
         save_injection_rate_graph_artifact(helper, inj_rate_d3)
 
         # Save raw injection wells
@@ -124,7 +125,8 @@ def main():
                                       "Surface Latitude": "Latitude(WGS84)",
                                       "Surface Longitude": "Longitude(WGS84)"}, inplace=True)
             helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "injection_tool_data_filtered_map_layer", filtered)
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "injection_tool_data_output", inj_df)
+            # Portal CSV not needed; not read by downstream steps.
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "injection_tool_data_output", inj_df)
 
         helper.setSuccessForStepIndex(STEP, True)
 

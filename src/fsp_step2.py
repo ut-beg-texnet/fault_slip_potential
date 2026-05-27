@@ -180,9 +180,10 @@ def main():
             regime, slip_pressures, fault_ids,
         )
 
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF", arcs_df)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slipDF", slip_df)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faultDF", fault_df)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF", arcs_df)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slipDF", slip_df)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faultDF", fault_df)
         save_mohr_diagram_graph_artifact(helper, arcs_df, slip_df, fault_df, stress_regime=regime)
 
         helper.setSuccessForStepIndex(STEP, True)

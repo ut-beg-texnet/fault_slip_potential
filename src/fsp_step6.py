@@ -269,9 +269,10 @@ def main():
         fault_summary["summary_pressure"] = fault_ids_series.map(pressure_lookup).fillna(0.0).astype(float)
 
         # ---- Save outputs ----
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_summary_fsp", fault_summary)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "pressure_through_time_results", pressure_df)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "fsp_through_time_results", fsp_df)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_summary_fsp", fault_summary)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "pressure_through_time_results", pressure_df)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "fsp_through_time_results", fsp_df)
         save_summary_artifacts(helper, STEP, fsp_df, pressure_df, year_of_interest=year_of_interest)
         save_fault_results_map_artifact(
             helper,
@@ -285,10 +286,11 @@ def main():
             color="#059669",
         )
 
-        if helper.getParameterStateWithStepIndexAndParamName(STEP, "year_of_interest_line") is not None:
-            epoch = float((date(year_of_interest, 1, 1) - date(1970, 1, 1)).days * 86400.0 * 1000.0)
-            year_line = pd.DataFrame([{"Year": year_of_interest, "epoch_time": epoch}])
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "year_of_interest_line", year_line)
+        # Portal CSV not needed; graph artifact covers this output.
+        # if helper.getParameterStateWithStepIndexAndParamName(STEP, "year_of_interest_line") is not None:
+        #     epoch = float((date(year_of_interest, 1, 1) - date(1970, 1, 1)).days * 86400.0 * 1000.0)
+        #     year_line = pd.DataFrame([{"Year": year_of_interest, "epoch_time": epoch}])
+        #     helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "year_of_interest_line", year_line)
 
         helper.setSuccessForStepIndex(STEP, True)
 

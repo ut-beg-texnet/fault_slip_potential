@@ -567,7 +567,8 @@ def main():
             return_sample_inputs=True,
         )
 
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_geomechanics_results", mc_results)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_geomechanics_results", mc_results)
 
         # ---- Load deterministic results for CDF colours ----
         det_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP_PREV, "det_geomechanics_results")
@@ -616,8 +617,9 @@ def main():
         #helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_geomechanics_stats", stats_df)
 
         fault_map_df = _probabilistic_geomechanics_fault_map_data(fault_inputs, stats_df, det_df)
-        if helper.getParameterStateWithStepIndexAndParamName(STEP, "faults_with_prob_geomechanics_results") is not None:
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_geomechanics_results", fault_map_df)
+        # Portal CSV not needed; graph artifact covers this output.
+        # if helper.getParameterStateWithStepIndexAndParamName(STEP, "faults_with_prob_geomechanics_results") is not None:
+        #     helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_geomechanics_results", fault_map_df)
         save_fault_results_map_artifact(
             helper,
             STEP,
@@ -634,11 +636,12 @@ def main():
         )
 
         variability_df = _uncertainty_variability_data(uncertainties, stress_model_type, stress_inputs, fault_inputs)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(
-            STEP,
-            "uncertainty_variability_tornado_chart_data",
-            variability_df,
-        )
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(
+        #     STEP,
+        #     "uncertainty_variability_tornado_chart_data",
+        #     variability_df,
+        # )
         save_uncertainty_tornado_artifact(
             helper,
             STEP,
@@ -650,11 +653,12 @@ def main():
         )
 
         uncertainty_df = _fault_sensitivity_tornado_data(stress_inputs, fault_inputs, uncertainties, stress_model_type)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(
-            STEP,
-            "prob_geomechanics_fault_sensitivity_tornado_chart_data",
-            uncertainty_df,
-        )
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(
+        #     STEP,
+        #     "prob_geomechanics_fault_sensitivity_tornado_chart_data",
+        #     uncertainty_df,
+        # )
         save_uncertainty_tornado_artifact(
             helper,
             STEP,

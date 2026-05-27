@@ -202,10 +202,11 @@ def main():
             sample_year=year_of_interest,
         )
 
-        if raw_hydro_results_enabled:
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_results", mc_results)
-        if helper.getParameterStateWithStepIndexAndParamName(STEP, "prob_hydrology_sample_inputs") is not None:
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_sample_inputs", hydro_sample_inputs)
+        # Portal CSV not needed; graph artifact covers this output.
+        # if raw_hydro_results_enabled:
+        #     helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_results", mc_results)
+        # if helper.getParameterStateWithStepIndexAndParamName(STEP, "prob_hydrology_sample_inputs") is not None:
+        #     helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_sample_inputs", hydro_sample_inputs)
 
         geo_cdf_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "prob_geomechanics_cdf_graph_data_prob_hydro")
         geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str}) if geo_cdf_path else pd.DataFrame()
@@ -221,7 +222,8 @@ def main():
 
         if cdf_rows:
             cdf_df = pd.concat(cdf_rows, ignore_index=True)
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_cdf_graph_data", cdf_df)
+            # Portal CSV not needed; graph artifact covers this output.
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_cdf_graph_data", cdf_df)
             save_probabilistic_hydrology_cdf_artifact(
                 helper,
                 STEP,
@@ -248,7 +250,7 @@ def main():
             for fid, group in yr_data.groupby(yr_data["ID"].astype(str), sort=False)
         }
         geo_groups = _geomechanics_pressure_samples_by_fault(geo_cdf_df)
-        slip_rows, probabilities = _combined_slip_potential_rows(
+        _, probabilities = _combined_slip_potential_rows(
             faults_with_fsp["FaultID"].astype(str),
             pressure_groups,
             geo_groups,
@@ -258,9 +260,9 @@ def main():
             faults_with_fsp["FaultID"].astype(str).map(probabilities).fillna(0.0)
         )
 
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_hydro_fsp", faults_with_fsp)
-        slip_potential_df = pd.DataFrame(slip_rows)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slip_potential_results", slip_potential_df)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_hydro_fsp", faults_with_fsp)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slip_potential_results", pd.DataFrame(slip_rows))
         save_fault_results_map_artifact(
             helper,
             STEP,

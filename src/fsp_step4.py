@@ -165,7 +165,8 @@ def main():
                 pd.concat(per_well_grid_rows, ignore_index=True)
                 if per_well_grid_rows else pd.DataFrame()
             )
-            helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "hydrology_pressure_grids_by_well", per_well_grid_df)
+            # Portal CSV not needed; graph artifact covers this output.
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "hydrology_pressure_grids_by_well", per_well_grid_df)
         else:
             per_well_grid_df = heatmap_df.copy()
             per_well_grid_df.insert(0, "WellID", "Total")
@@ -203,14 +204,16 @@ def main():
                 "pressure_psi": p_radial,
             }))
         radial_df = pd.concat(radial_dfs, ignore_index=True) if radial_dfs else pd.DataFrame()
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "radial_curves_data", radial_df)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "radial_curves_data", radial_df)
         save_radial_curves_artifact(helper, STEP, radial_df)
 
         # ---- Deterministic hydrology results per fault ----
         hydro_result_df = fault_df.copy()
         hydro_result_df["pressure_psi"] = dp_faults
         hydro_result_df["year"] = year_of_interest
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "deterministic_hydrology_results", hydro_result_df)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "deterministic_hydrology_results", hydro_result_df)
         save_direct_hydrology_pressure_map_artifact(
             helper,
             STEP,
@@ -264,9 +267,10 @@ def main():
             p0, dp_faults.tolist(), strikes, friction,
             list(fault_ids),
         )
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF_hydro", arcs_df)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slipDF_hydro", slip_df)
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faultsDF_hydro", fault_df_mohr)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF_hydro", arcs_df)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slipDF_hydro", slip_df)
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faultsDF_hydro", fault_df_mohr)
         save_mohr_diagram_graph_artifact(
             helper,
             arcs_df,
@@ -291,7 +295,8 @@ def main():
         faults_with_pp["shear_capacity_utilization_det_hydro"] = [
             round(float(r.get("shear_capacity_utilization", 0.0)), 3) for r in hydro_res_list
         ]
-        helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_det_hydro_pp", faults_with_pp)
+        # Portal CSV not needed; graph artifact covers this output.
+        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_det_hydro_pp", faults_with_pp)
 
         helper.setSuccessForStepIndex(STEP, True)
 
