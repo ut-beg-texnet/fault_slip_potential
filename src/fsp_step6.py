@@ -24,6 +24,7 @@ from fsp.hydrology.pressure_field import (
 )
 from graphs.leaflet_map import save_fault_results_map_artifact
 from graphs.scientific import save_summary_artifacts
+from progress import report_progress
 
 STEP = 5       # 0-based index for Step 6
 STEP_HYDRO = 3  # Step 4
@@ -206,6 +207,7 @@ def main():
         n_iters = int(_p(STEP_PROB_HYDRO, "hydro_mc_iterations") or 750)
 
         # ---- Run pressure time series ----
+        report_progress("Calculating pressure over time")
         if model_run == 0:
             pressure_df = _run_deterministic_hydro_time_series(
                 STRho, well_data_list, fault_df, years_to_analyze
@@ -246,6 +248,7 @@ def main():
         )
 
         # ---- Calculate FSP per fault per year ----
+        report_progress("Calculating fault slip potential")
         fsp_source_df = pressure_df if model_run == 0 else pressure_samples_df
         fsp_df = _calculate_fsp(geo_cdf_df, fsp_source_df)
         fsp_df["FSP"] = fsp_df["FSP"].round(2)
@@ -273,6 +276,7 @@ def main():
         # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_summary_fsp", fault_summary)
         # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "pressure_through_time_results", pressure_df)
         # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "fsp_through_time_results", fsp_df)
+        report_progress("Generating summary maps")
         save_summary_artifacts(helper, STEP, fsp_df, pressure_df, year_of_interest=year_of_interest)
         save_fault_results_map_artifact(
             helper,

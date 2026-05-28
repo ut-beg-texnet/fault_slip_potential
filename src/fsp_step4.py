@@ -31,6 +31,7 @@ from fsp.geomechanics.mohr import mohr_diagram_hydro_data_to_d3_portal
 from graphs.hydrology_map import save_direct_hydrology_pressure_map_artifact
 from graphs.mohr_diagram import save_mohr_diagram_graph_artifact
 from graphs.scientific import save_radial_curves_artifact
+from progress import report_progress
 
 STEP = 3   # 0-based index for Step 4
 STEP_GEO = 1  # Step 2
@@ -92,6 +93,7 @@ def main():
         fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
 
         # ---- Load injection wells ----
+        report_progress("Loading wells and faults")
         inj_path, inj_type = _get_injection_path(helper)
         inj_df = load_injection_wells(inj_path, inj_type)
 
@@ -106,6 +108,7 @@ def main():
         fault_lons = fault_df["Longitude(WGS84)"].values.astype(float)
         fault_ids = fault_df["FaultID"].astype(str).values
 
+        report_progress("Calculating pressure at faults")
         fault_distance_m = well_fault_distances_m(well_data_list, fault_lats, fault_lons)
         active_fault_wells = [(wi, wd) for wi, wd in enumerate(well_data_list) if len(wd.days) > 0]
         per_well_fault_p = Parallel(n_jobs=-1, backend="loky")(
@@ -121,6 +124,7 @@ def main():
         )
 
         # ---- Pressure grid (raster overlay) ----
+        report_progress("Building pressure grid")
         well_lats = np.array([wd.latitude for wd in well_data_list], dtype=float)
         well_lons = np.array([wd.longitude for wd in well_data_list], dtype=float)
         grid_lats = np.concatenate([fault_lats, well_lats]) if len(well_lats) else fault_lats
@@ -187,6 +191,7 @@ def main():
         well_summary_df = pd.DataFrame(well_rows)
 
         # ---- Radial curves (pressure vs distance for each well) ----
+        report_progress("Generating maps and diagrams")
         r_km = np.linspace(0.1, 50.0, 200)
         r_m = r_km * 1000.0
         radial_dfs = []

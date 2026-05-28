@@ -27,6 +27,7 @@ from graphs.leaflet_map import (
 )
 from graphs.mohr_diagram import save_mohr_diagram_graph_artifact
 from graphs.stereonet import save_stereonet_graph_artifact
+from progress import report_progress
 
 STEP = 1   # 0-based index for Step 2
 
@@ -102,6 +103,7 @@ def main():
         faults_df = pd.read_csv(faults_path)
 
         # ---- Calculate stresses ----
+        report_progress("Calculating stress field")
         stress_state, p0 = calculate_absolute_stresses(stress_inputs, friction, stress_model_type)
 
         sV, sh, sH = stress_state.principal_stresses
@@ -130,6 +132,7 @@ def main():
         step2_df["shear_stress"] = np.round(tau, 3)
 
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "det_geomechanics_results", step2_df)
+        report_progress("Generating maps and diagrams")
         wells_df = _load_map_ready_injection_wells(helper)
 
         save_fault_results_map_artifact(

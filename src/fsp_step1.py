@@ -17,6 +17,7 @@ from fsp.io.faults import load_faults_csv, load_faults_shapefile, generate_rando
 from fsp.io.coords import latlon_to_wkt
 from fsp.io.wells import load_injection_wells, injection_rate_data_to_d3_bbl_day
 from graphs.injection_rate import save_injection_rate_graph_artifact
+from progress import report_progress
 
 STEP = 0   # 0-based index for Step 1
 
@@ -51,6 +52,7 @@ def main():
 
     try:
         # ---- Faults ----
+        report_progress("Loading faults")
         randomize = helper.getParameterValueWithStepIndexAndParamName(STEP, "randomize_faults")
         if randomize is None:
             randomize = False
@@ -92,6 +94,7 @@ def main():
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_model_inputs_output", faults_df)
 
         # ---- Injection wells ----
+        report_progress("Loading injection wells")
         inj_path, inj_type = _get_injection_path(helper)
 
         if inj_type == "injection_tool_data":

@@ -22,6 +22,7 @@ from graphs.scientific import (
     save_hydrology_input_distribution_histograms_artifact,
     save_probabilistic_hydrology_cdf_artifact,
 )
+from progress import report_progress
 
 STEP = 4   # 0-based index for Step 5
 STEP_HYDRO = 3  # Step 4 (deterministic hydrology)
@@ -173,6 +174,7 @@ def main():
         fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
 
         # ---- Load injection wells ----
+        report_progress("Loading wells and faults")
         inj_path, inj_type = _get_injection_path(helper)
         inj_df = load_injection_wells(inj_path, inj_type)
 
@@ -195,6 +197,7 @@ def main():
                 STEP, "prob_hydrology_results"
             ) is not None
         )
+        report_progress("Running Monte Carlo pressure simulations")
         mc_results, hydro_sample_inputs = run_hydrology_mc_time_series(
             hydro_params, well_data_list, fault_df, years_to_analyze,
             return_sample_inputs=True,
@@ -212,6 +215,7 @@ def main():
         geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str}) if geo_cdf_path else pd.DataFrame()
 
         # ---- Build per-fault CDF data for year of interest ----
+        report_progress("Building exceedance curves")
         yr_data = mc_results[mc_results["Year"] == year_of_interest] if year_of_interest in mc_results["Year"].values else mc_results
         cdf_rows = []
         for fid, fault_pressures in yr_data.groupby(yr_data["ID"].astype(str), sort=False)["Pressure"]:
@@ -243,6 +247,7 @@ def main():
             display_order=51,
         )
 
+        report_progress("Calculating fault slip probability")
         faults_with_fsp = fault_df.copy()
         faults_with_fsp["prob_hydro_fsp"] = 0.0
         pressure_groups = {

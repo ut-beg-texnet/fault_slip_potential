@@ -26,6 +26,7 @@ from graphs.scientific import (
     save_uncertainty_tornado_artifact,
 )
 from graphs.leaflet_map import save_fault_results_map_artifact
+from progress import report_progress
 
 STEP = 2   # 0-based index for Step 3
 STEP_PREV = 1  # Step 2 (deterministic geomechanics)
@@ -546,6 +547,7 @@ def main():
             }
 
         # ---- Load faults ----
+        report_progress("Loading fault data")
         faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults")
         if faults_path is None:
             raise ValueError("No fault dataset provided.")
@@ -560,6 +562,7 @@ def main():
         n_sims = int(helper.getParameterValueWithStepIndexAndParamName(STEP, "mc_iterations") or 1000)
 
         # ---- Run MC ----
+        report_progress("Running Monte Carlo simulations")
         mc_results, sample_inputs_df = run_geomechanics_mc(
             stress_inputs, fault_inputs, n_sims, uncertainties,
             stress_model_type, friction,
@@ -574,6 +577,7 @@ def main():
         det_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP_PREV, "det_geomechanics_results")
         det_df = pd.read_csv(det_path) if det_path else pd.DataFrame()
 
+        report_progress("Building probability curves")
         cdf_df = _prob_geomechanics_cdf(mc_results, det_df)
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_geomechanics_cdf_graph_data", cdf_df)
         save_cdf_artifact(
@@ -616,6 +620,7 @@ def main():
         stats_df["FaultID"] = stats_df["FaultID"].astype(str)
         #helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_geomechanics_stats", stats_df)
 
+        report_progress("Generating fault map and sensitivity analysis")
         fault_map_df = _probabilistic_geomechanics_fault_map_data(fault_inputs, stats_df, det_df)
         # Portal CSV not needed; graph artifact covers this output.
         # if helper.getParameterStateWithStepIndexAndParamName(STEP, "faults_with_prob_geomechanics_results") is not None:

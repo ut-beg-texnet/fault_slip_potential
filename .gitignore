@@ -8,3 +8,4 @@ CLAUDE.md
 reference_old_code/
 examples/
 .claude/
+.cursor/
