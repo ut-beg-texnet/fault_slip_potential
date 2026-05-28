@@ -74,8 +74,8 @@ def main():
 
         # Validate fault count
         n_unique = faults_df["FaultID"].nunique()
-        if n_unique > 10000:
-            msg = "Number of faults provided is greater than 10000. Please provide a smaller number of faults."
+        if n_unique > 1000:
+            msg = "Number of faults provided is greater than 1000. Please provide a smaller number of faults."
             helper.addMessageWithStepIndex(STEP, msg, 2)
             raise ValueError(msg)
 
