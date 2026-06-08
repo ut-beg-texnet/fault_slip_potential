@@ -253,6 +253,76 @@ def _fault_slip_pressure(stress_inputs: dict, fault_row: pd.Series, stress_model
     return float(np.asarray(slip_pressure).item())
 
 
+_TORNADO_METHOD = "+/- uncertainty one-at-a-time deterministic"
+_TORNADO_COLUMNS = [
+    "id",
+    "FaultID",
+    "parameter",
+    "label",
+    "low_slip_pressure",
+    "high_slip_pressure",
+    "low_delta",
+    "high_delta",
+    "impact",
+    "method",
+    "baseline_slip_pressure",
+]
+
+
+def _resolve_fault_frictions(fault_inputs: pd.DataFrame, stress_inputs: dict) -> np.ndarray:
+    """Per-fault friction array, mirroring _fault_slip_pressure's resolution order.
+
+    Uses the per-fault ``FrictionCoefficient`` where finite, otherwise the global
+    ``friction_coefficient`` from stress_inputs. Raises if neither is available
+    (same error as the scalar path).
+    """
+    n = len(fault_inputs)
+    global_friction = _numeric(stress_inputs.get("friction_coefficient"))
+    if "FrictionCoefficient" in fault_inputs.columns:
+        per_fault = pd.to_numeric(fault_inputs["FrictionCoefficient"], errors="coerce").to_numpy(dtype=float)
+    else:
+        per_fault = np.full(n, np.nan)
+    fallback = global_friction if global_friction is not None else np.nan
+    frictions = np.where(np.isfinite(per_fault), per_fault, fallback)
+    if not np.all(np.isfinite(frictions)):
+        raise ValueError("Missing friction coefficient for deterministic fault sensitivity calculation.")
+    return frictions
+
+
+def _vectorized_fault_slip_pressures(stress_inputs: dict, strikes, dips, frictions,
+                                     stress_model_type: str) -> np.ndarray:
+    """Vectorized equivalent of _fault_slip_pressure over arrays of faults.
+
+    The absolute stress state depends only on (stress_inputs, friction, model), so we
+    group faults by their friction value and compute the stress state once per group —
+    eliminating the per-fault recomputation in the original scalar loop. Each fault's
+    result is identical to _fault_slip_pressure (same functions, same inputs).
+    """
+    strikes = np.asarray(strikes, dtype=float)
+    dips = np.asarray(dips, dtype=float)
+    frictions = np.asarray(frictions, dtype=float)
+    out = np.empty(strikes.shape[0], dtype=float)
+    for mu in np.unique(frictions):
+        mask = frictions == mu
+        stress_state_obj, p0_abs = calculate_absolute_stresses(stress_inputs, float(mu), stress_model_type)
+        sig_normal, tau_normal, *_ = calculate_fault_effective_stresses(
+            strikes[mask], dips[mask], stress_state_obj, p0_abs, 0.0,
+        )
+        slip = ComputeCriticalPorePressureForFailure(sig_normal, tau_normal, float(mu), p0_abs)
+        out[mask] = np.asarray(slip, dtype=float)
+    return out
+
+
+def _bounded_fault_array(parameter_key: str, base_array: np.ndarray, delta: float) -> np.ndarray:
+    """Vectorized form of _bounded_parameter_value for fault-geometry columns."""
+    updated = base_array + delta
+    if parameter_key == "Strike":
+        return np.mod(updated, 360.0)
+    if parameter_key == "Dip":
+        return np.clip(updated, 0.0, 90.0)
+    return np.maximum(updated, 0.0)  # FrictionCoefficient (and any other)
+
+
 def _fault_sensitivity_tornado_data(
     stress_inputs: dict,
     fault_inputs: pd.DataFrame,
@@ -261,83 +331,130 @@ def _fault_sensitivity_tornado_data(
 ) -> pd.DataFrame:
     stress_parameter_mapping = _stress_parameter_mapping(stress_model_type, stress_inputs)
     fault_parameter_mapping = _fault_parameter_mapping()
+
+    n_faults = len(fault_inputs)
+    if n_faults == 0:
+        return pd.DataFrame(columns=_TORNADO_COLUMNS)
+
+    fault_ids = fault_inputs["FaultID"].astype(str).to_numpy()
+    strikes = pd.to_numeric(fault_inputs["Strike"], errors="coerce").to_numpy(dtype=float)
+    dips = pd.to_numeric(fault_inputs["Dip"], errors="coerce").to_numpy(dtype=float)
+    frictions = _resolve_fault_frictions(fault_inputs, stress_inputs)
+
+    # Baseline slip pressure per fault (stress state cached per unique friction).
+    baseline = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, frictions, stress_model_type)
+
+    # --- Stress-parameter perturbations: one perturbed stress field per param/direction,
+    #     evaluated vectorized across all faults. ---
+    stress_param_arrays = {}  # uncertainty_key -> (label, low_arr, high_arr)
+    for uncertainty_key, (label, stress_key) in stress_parameter_mapping.items():
+        uncertainty_value = _numeric(uncertainties.get(uncertainty_key))
+        base_value = _numeric(stress_inputs.get(stress_key))
+        if uncertainty_value is None or uncertainty_value <= 0.0 or base_value is None:
+            continue
+
+        low_inputs = dict(stress_inputs)
+        high_inputs = dict(stress_inputs)
+        low_inputs[stress_key] = _bounded_parameter_value(stress_key, base_value, -uncertainty_value)
+        high_inputs[stress_key] = _bounded_parameter_value(stress_key, base_value, uncertainty_value)
+
+        low_arr = _vectorized_fault_slip_pressures(low_inputs, strikes, dips, frictions, stress_model_type)
+        high_arr = _vectorized_fault_slip_pressures(high_inputs, strikes, dips, frictions, stress_model_type)
+        stress_param_arrays[uncertainty_key] = (label, low_arr, high_arr)
+
+    # --- Fault-geometry perturbations: perturb the relevant fault array, base stress field. ---
+    fault_param_arrays = {}  # uncertainty_key -> (label, low_arr, high_arr, valid_mask)
+    for uncertainty_key, (label, fault_key) in fault_parameter_mapping.items():
+        uncertainty_value = _numeric(uncertainties.get(uncertainty_key))
+        if uncertainty_value is None or uncertainty_value <= 0.0:
+            continue
+
+        # Raw per-fault base values (no global fallback — mirrors fault_row.get(fault_key)).
+        if fault_key == "Strike":
+            raw_base = strikes
+        elif fault_key == "Dip":
+            raw_base = dips
+        elif fault_key in fault_inputs.columns:
+            raw_base = pd.to_numeric(fault_inputs[fault_key], errors="coerce").to_numpy(dtype=float)
+        else:
+            continue  # base_value is None for every fault -> param skipped entirely
+
+        valid_mask = np.isfinite(raw_base)
+        if not np.any(valid_mask):
+            continue
+
+        low_base = _bounded_fault_array(fault_key, raw_base, -uncertainty_value)
+        high_base = _bounded_fault_array(fault_key, raw_base, uncertainty_value)
+
+        if fault_key == "Strike":
+            low_arr = _vectorized_fault_slip_pressures(stress_inputs, low_base, dips, frictions, stress_model_type)
+            high_arr = _vectorized_fault_slip_pressures(stress_inputs, high_base, dips, frictions, stress_model_type)
+        elif fault_key == "Dip":
+            low_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, low_base, frictions, stress_model_type)
+            high_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, high_base, frictions, stress_model_type)
+        else:  # FrictionCoefficient — perturbs both the stress state and the slip mu.
+            # Invalid faults are excluded at assembly; fill them with a finite value so the
+            # grouped stress-state computation never sees NaN.
+            low_friction = np.where(valid_mask, low_base, frictions)
+            high_friction = np.where(valid_mask, high_base, frictions)
+            low_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, low_friction, stress_model_type)
+            high_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, high_friction, stress_model_type)
+
+        fault_param_arrays[uncertainty_key] = (label, low_arr, high_arr, valid_mask)
+
+    # --- Assemble rows in the same fault-major / param order as the original scalar loop
+    #     so the (stable-input) post-sort output is identical. ---
     rows = []
+    for i in range(n_faults):
+        fault_id = str(fault_ids[i])
+        baseline_slip_pressure = float(baseline[i])
 
-    for _, base_fault_row in fault_inputs.iterrows():
-        fault_row = base_fault_row.copy()
-        fault_id = str(fault_row["FaultID"])
-        baseline_slip_pressure = _fault_slip_pressure(stress_inputs, fault_row, stress_model_type)
-
-        for uncertainty_key, (label, stress_key) in stress_parameter_mapping.items():
-            uncertainty_value = _numeric(uncertainties.get(uncertainty_key))
-            base_value = _numeric(stress_inputs.get(stress_key))
-            if uncertainty_value is None or uncertainty_value <= 0.0 or base_value is None:
+        for uncertainty_key, (label, _stress_key) in stress_parameter_mapping.items():
+            entry = stress_param_arrays.get(uncertainty_key)
+            if entry is None:
                 continue
-
-            low_stress_inputs = dict(stress_inputs)
-            high_stress_inputs = dict(stress_inputs)
-            low_stress_inputs[stress_key] = _bounded_parameter_value(stress_key, base_value, -uncertainty_value)
-            high_stress_inputs[stress_key] = _bounded_parameter_value(stress_key, base_value, uncertainty_value)
-
-            low_slip_pressure = _fault_slip_pressure(low_stress_inputs, fault_row, stress_model_type)
-            high_slip_pressure = _fault_slip_pressure(high_stress_inputs, fault_row, stress_model_type)
-
+            _label, low_arr, high_arr = entry
+            low_slip_pressure = float(low_arr[i])
+            high_slip_pressure = float(high_arr[i])
             rows.append({
                 "id": f"{fault_id}:{uncertainty_key}",
                 "FaultID": fault_id,
                 "parameter": uncertainty_key,
                 "label": label,
-                "low_slip_pressure": float(low_slip_pressure),
-                "high_slip_pressure": float(high_slip_pressure),
-                "low_delta": float(low_slip_pressure - baseline_slip_pressure),
-                "high_delta": float(high_slip_pressure - baseline_slip_pressure),
-                "impact": float(high_slip_pressure - low_slip_pressure),
-                "method": "+/- uncertainty one-at-a-time deterministic",
-                "baseline_slip_pressure": float(baseline_slip_pressure),
+                "low_slip_pressure": low_slip_pressure,
+                "high_slip_pressure": high_slip_pressure,
+                "low_delta": low_slip_pressure - baseline_slip_pressure,
+                "high_delta": high_slip_pressure - baseline_slip_pressure,
+                "impact": high_slip_pressure - low_slip_pressure,
+                "method": _TORNADO_METHOD,
+                "baseline_slip_pressure": baseline_slip_pressure,
             })
 
-        for uncertainty_key, (label, fault_key) in fault_parameter_mapping.items():
-            uncertainty_value = _numeric(uncertainties.get(uncertainty_key))
-            base_value = _numeric(fault_row.get(fault_key))
-            if uncertainty_value is None or uncertainty_value <= 0.0 or base_value is None:
+        for uncertainty_key, (label, _fault_key) in fault_parameter_mapping.items():
+            entry = fault_param_arrays.get(uncertainty_key)
+            if entry is None:
                 continue
-
-            low_fault_row = fault_row.copy()
-            high_fault_row = fault_row.copy()
-            low_fault_row[fault_key] = _bounded_parameter_value(fault_key, base_value, -uncertainty_value)
-            high_fault_row[fault_key] = _bounded_parameter_value(fault_key, base_value, uncertainty_value)
-
-            low_slip_pressure = _fault_slip_pressure(stress_inputs, low_fault_row, stress_model_type)
-            high_slip_pressure = _fault_slip_pressure(stress_inputs, high_fault_row, stress_model_type)
-
+            _label, low_arr, high_arr, valid_mask = entry
+            if not valid_mask[i]:
+                continue
+            low_slip_pressure = float(low_arr[i])
+            high_slip_pressure = float(high_arr[i])
             rows.append({
                 "id": f"{fault_id}:{uncertainty_key}",
                 "FaultID": fault_id,
                 "parameter": uncertainty_key,
                 "label": label,
-                "low_slip_pressure": float(low_slip_pressure),
-                "high_slip_pressure": float(high_slip_pressure),
-                "low_delta": float(low_slip_pressure - baseline_slip_pressure),
-                "high_delta": float(high_slip_pressure - baseline_slip_pressure),
-                "impact": float(high_slip_pressure - low_slip_pressure),
-                "method": "+/- uncertainty one-at-a-time deterministic",
-                "baseline_slip_pressure": float(baseline_slip_pressure),
+                "low_slip_pressure": low_slip_pressure,
+                "high_slip_pressure": high_slip_pressure,
+                "low_delta": low_slip_pressure - baseline_slip_pressure,
+                "high_delta": high_slip_pressure - baseline_slip_pressure,
+                "impact": high_slip_pressure - low_slip_pressure,
+                "method": _TORNADO_METHOD,
+                "baseline_slip_pressure": baseline_slip_pressure,
             })
 
     if not rows:
-        return pd.DataFrame(columns=[
-            "id",
-            "FaultID",
-            "parameter",
-            "label",
-            "low_slip_pressure",
-            "high_slip_pressure",
-            "low_delta",
-            "high_delta",
-            "impact",
-            "method",
-            "baseline_slip_pressure",
-        ])
+        return pd.DataFrame(columns=_TORNADO_COLUMNS)
 
     result = pd.DataFrame(rows)
     result["abs_impact"] = result["impact"].abs()

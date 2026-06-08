@@ -1,4 +1,4 @@
-# Fault Slip Potential (FSP) 3.0
+# Fault Slip Potential (FSP) 4.0
 
 ### A Program for Probabilistic Estimation of Fault Slip Potential Resulting from Fluid Injection
 
@@ -6,7 +6,7 @@
 
 ### Overview
 
-FSP is a tool developed to screen faults near injection wells and estimate the potential for fault slip induced by fluid injection. It uses probabilistic methods to estimate the cumulative probability of a fault slipping due to increased pore pressure.
+FSP is a tool developed to screen faults near injection wells and estimate the potential for fault slip induced by fluid injection. It uses deterministic and probabilistic methods to estimate the cumulative probability of a fault slipping due to increased pore pressure.
 
 ### Features
 

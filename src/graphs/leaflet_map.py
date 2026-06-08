@@ -269,6 +269,15 @@ def _write_png_rgba(path: str, rgba: np.ndarray):
         fh.write(contents)
 
 
+# Precomputed, sorted color-stop arrays for vectorized pressure -> RGB interpolation.
+# Mirrors _pressure_color's clamped piecewise-linear mapping, computed once at import.
+_PRESSURE_STOPS_SORTED = sorted((float(stop), _hex_to_rgb(color)) for stop, color in PRESSURE_COLOR_SCALE)
+_PRESSURE_STOP_POSITIONS = np.array([stop for stop, _ in _PRESSURE_STOPS_SORTED], dtype=float)
+_PRESSURE_STOP_R = np.array([rgb[0] for _, rgb in _PRESSURE_STOPS_SORTED], dtype=float)
+_PRESSURE_STOP_G = np.array([rgb[1] for _, rgb in _PRESSURE_STOPS_SORTED], dtype=float)
+_PRESSURE_STOP_B = np.array([rgb[2] for _, rgb in _PRESSURE_STOPS_SORTED], dtype=float)
+
+
 def _pressure_grid_to_rgba(pressure_grid, *, transparent_fraction=0.01, min_alpha=45, max_alpha=205):
     values = np.asarray(pressure_grid, dtype=float)
     finite = np.isfinite(values)
@@ -283,13 +292,21 @@ def _pressure_grid_to_rgba(pressure_grid, *, transparent_fraction=0.01, min_alph
 
     threshold = max(max_value * transparent_fraction, 1e-9)
     normalized = np.clip(values / max_value, 0.0, 1.0)
-    rgba = np.zeros((values.shape[0], values.shape[1], 4), dtype=np.uint8)
     visible = finite & (values >= threshold)
 
-    for row, col in zip(*np.where(visible)):
-        red, green, blue = _pressure_color(float(normalized[row, col]))
-        alpha = int(round(min_alpha + (max_alpha - min_alpha) * float(normalized[row, col])))
-        rgba[row, col] = [red, green, blue, alpha]
+    # Vectorized piecewise-linear color mapping (replaces the per-pixel _pressure_color loop).
+    # np.interp performs the same clamped linear interpolation between sorted stops.
+    red = np.interp(normalized, _PRESSURE_STOP_POSITIONS, _PRESSURE_STOP_R)
+    green = np.interp(normalized, _PRESSURE_STOP_POSITIONS, _PRESSURE_STOP_G)
+    blue = np.interp(normalized, _PRESSURE_STOP_POSITIONS, _PRESSURE_STOP_B)
+    alpha = min_alpha + (max_alpha - min_alpha) * normalized
+
+    rgba = np.zeros((values.shape[0], values.shape[1], 4), dtype=np.uint8)
+    rgba[..., 0] = np.round(red).astype(np.uint8)
+    rgba[..., 1] = np.round(green).astype(np.uint8)
+    rgba[..., 2] = np.round(blue).astype(np.uint8)
+    rgba[..., 3] = np.round(alpha).astype(np.uint8)
+    rgba[~visible] = 0
 
     return np.flipud(rgba), min_value, max_value
 
