@@ -30,8 +30,12 @@ from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
 from fsp_step5 import (
     _combined_slip_potential_rows,
     _empirical_geomechanics_probabilities,
+    _has_geomechanics_cdf as _step5_has_geomechanics_cdf,
 )
-from fsp_step6 import _calculate_fsp as _calculate_summary_fsp
+from fsp_step6 import (
+    _calculate_fsp as _calculate_summary_fsp,
+    _has_geomechanics_cdf as _step6_has_geomechanics_cdf,
+)
 
 
 class TestCalcST:
@@ -259,6 +263,44 @@ class TestHydrologyMonteCarloSamples:
         assert set(samples_df["Year"]) == {2022}
         assert len(samples_df) == params.n_iterations * len(faults)
 
+    def test_empty_faults_return_no_pressure_rows_but_keep_sample_inputs(self):
+        params = HydrologyParams(
+            aquifer_thickness=100.0,
+            porosity=0.1,
+            permeability=200.0,
+            fluid_density=1000.0,
+            dynamic_viscosity=8e-4,
+            fluid_compressibility=3.6e-10,
+            rock_compressibility=1.08e-9,
+            plus_minus={},
+            n_iterations=3,
+        )
+        well = SimpleNamespace(
+            well_id="well-1",
+            latitude=30.0,
+            longitude=-97.0,
+            start_date=date(2020, 1, 1),
+            start_year=2020,
+            days=np.array([1.0, 365.0]),
+            rates=np.array([1000.0, 1200.0]),
+        )
+        faults = pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)"])
+
+        results_df, sample_inputs_df = run_hydrology_mc_time_series(
+            params,
+            [well],
+            faults,
+            [2021],
+            n_jobs=1,
+            return_sample_inputs=True,
+            result_mode="year_samples",
+            sample_year=2021,
+        )
+
+        assert list(results_df.columns) == ["SimulationID", "ID", "Pressure", "Year"]
+        assert results_df.empty
+        assert len(sample_inputs_df) == params.n_iterations
+
 
 class TestBatchedFaultPressure:
     def test_batched_pressure_matches_scalar_pressure_for_multiple_faults(self):
@@ -323,6 +365,29 @@ def test_combined_slip_potential_averages_empirical_geomechanics_probability():
     assert rows[0]["probability"] == pytest.approx(0.4375)
     assert rows[0]["Pressure"] == pytest.approx(22.5)
     assert rows[0]["Year"] == 2025
+
+
+def test_probabilistic_hydrology_recognizes_missing_geomechanics_cdf_as_pressure_only():
+    assert not _step5_has_geomechanics_cdf(pd.DataFrame())
+    assert not _step5_has_geomechanics_cdf(pd.DataFrame({"ID": ["A"], "Pressure": [12.0]}))
+    assert _step5_has_geomechanics_cdf(pd.DataFrame({
+        "ID": ["A"],
+        "slip_pressure": [10.0],
+    }))
+
+
+def test_summary_fsp_returns_empty_frame_without_geomechanics_cdf():
+    hydro_df = pd.DataFrame({
+        "ID": ["A"],
+        "Pressure": [25.0],
+        "Year": [2032],
+    })
+
+    fsp_df = _calculate_summary_fsp(pd.DataFrame(), hydro_df)
+
+    assert list(fsp_df.columns) == ["ID", "Year", "FSP", "epoch_time"]
+    assert fsp_df.empty
+    assert not _step6_has_geomechanics_cdf(pd.DataFrame())
 
 
 def test_summary_fsp_uses_empirical_samples_for_probabilistic_hydrology():

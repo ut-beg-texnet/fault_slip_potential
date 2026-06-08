@@ -37,6 +37,15 @@ STEP = 3   # 0-based index for Step 4
 STEP_GEO = 1  # Step 2
 
 
+def _has_required_geomechanics_inputs(stress_inputs: dict, stress_model_type: str) -> bool:
+    required = ["reference_depth", "vertical_stress", "pore_pressure", "max_stress_azimuth", "friction_coefficient"]
+    if any(stress_inputs.get(key) is None for key in required):
+        return False
+    if stress_model_type in ("gradients", "all_gradients"):
+        return stress_inputs.get("min_horizontal_stress") is not None and stress_inputs.get("max_horizontal_stress") is not None
+    return stress_inputs.get("aphi_value") is not None
+
+
 def _compute_well_grid_p(wd, grid_lats_flat, grid_lons_flat, grid_shape, STRho, cutoff_date):
     """Compute the pressure grid contribution for a single well.
 
@@ -59,7 +68,7 @@ def _get_injection_path(helper):
         ("injection_tool_data", "injection_tool_data"),
     ]:
         path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, param)
-        if path is not None:
+        if path:
             return path, dtype
     raise ValueError("No injection wells dataset provided.")
 
@@ -88,9 +97,11 @@ def main():
 
         # ---- Load faults ----
         faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults")
-        if faults_path is None:
-            raise ValueError("No fault dataset provided.")
-        fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
+        if not faults_path:
+            fault_df = pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)", "Strike", "Dip"])
+        else:
+            fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
+        has_faults = not fault_df.empty
 
         # ---- Load injection wells ----
         report_progress("Loading wells and faults")
@@ -104,24 +115,37 @@ def main():
         well_data_list = normalize_wells_to_well_data(well_info, inj_type, cutoff_date)
 
         # ---- Compute pressure at each fault ----
-        fault_lats = fault_df["Latitude(WGS84)"].values.astype(float)
-        fault_lons = fault_df["Longitude(WGS84)"].values.astype(float)
-        fault_ids = fault_df["FaultID"].astype(str).values
-
-        report_progress("Calculating pressure at faults")
-        fault_distance_m = well_fault_distances_m(well_data_list, fault_lats, fault_lons)
-        active_fault_wells = [(wi, wd) for wi, wd in enumerate(well_data_list) if len(wd.days) > 0]
-        per_well_fault_p = Parallel(n_jobs=-1, backend="loky")(
-            delayed(pfieldcalc_all_rates_for_distances)(
-                fault_distance_m[wi], STRho, wd.days, wd.rates,
-                float((cutoff_date - wd.start_date).days + 1)
+        if has_faults:
+            fault_lats = fault_df["Latitude(WGS84)"].values.astype(float)
+            fault_lons = fault_df["Longitude(WGS84)"].values.astype(float)
+            fault_ids = fault_df["FaultID"].astype(str).values
+        else:
+            fault_lats = np.array([], dtype=float)
+            fault_lons = np.array([], dtype=float)
+            fault_ids = np.array([], dtype=str)
+            helper.addMessageWithStepIndex(
+                STEP,
+                "No fault dataset was provided, so deterministic hydrology fault pressure outputs were skipped. Pressure grid and well-based outputs are still available.",
+                1,
             )
-            for wi, wd in active_fault_wells
-        )
-        dp_faults = np.maximum(
-            np.sum(per_well_fault_p, axis=0) if per_well_fault_p else np.zeros(len(fault_df), dtype=float),
-            0.0,
-        )
+
+        if has_faults:
+            report_progress("Calculating pressure at faults")
+            fault_distance_m = well_fault_distances_m(well_data_list, fault_lats, fault_lons)
+            active_fault_wells = [(wi, wd) for wi, wd in enumerate(well_data_list) if len(wd.days) > 0]
+            per_well_fault_p = Parallel(n_jobs=-1, backend="loky")(
+                delayed(pfieldcalc_all_rates_for_distances)(
+                    fault_distance_m[wi], STRho, wd.days, wd.rates,
+                    float((cutoff_date - wd.start_date).days + 1)
+                )
+                for wi, wd in active_fault_wells
+            )
+            dp_faults = np.maximum(
+                np.sum(per_well_fault_p, axis=0) if per_well_fault_p else np.zeros(len(fault_df), dtype=float),
+                0.0,
+            )
+        else:
+            dp_faults = np.array([], dtype=float)
 
         # ---- Pressure grid (raster overlay) ----
         report_progress("Building pressure grid")
@@ -231,7 +255,7 @@ def main():
             display_order=41,
         )
 
-        # ---- Updated Mohr diagram with hydro pressure ----
+        # ---- Optional updated Mohr diagram with hydro pressure ----
         stress_inputs = {
             "reference_depth": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "reference_depth"),
             "vertical_stress": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "vertical_stress"),
@@ -242,66 +266,75 @@ def main():
             "aphi_value": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "aphi_value"),
             "friction_coefficient": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "friction_coefficient"),
         }
-        friction = float(stress_inputs["friction_coefficient"])
         stress_model_type = helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "stress_model_type") or "gradients"
-        stress_state, p0 = calculate_absolute_stresses(stress_inputs, friction, stress_model_type)
-        sV, sh, sH = stress_state.principal_stresses
+        if has_faults and _has_required_geomechanics_inputs(stress_inputs, stress_model_type):
+            friction = float(stress_inputs["friction_coefficient"])
+            stress_state, p0 = calculate_absolute_stresses(stress_inputs, friction, stress_model_type)
+            sV, sh, sH = stress_state.principal_stresses
 
-        hydro_res_list = []
-        for i, row in fault_df.iterrows():
-            res = analyze_fault_hydro(
-                float(row["Strike"]), float(row["Dip"]), friction,
-                stress_state, p0, float(dp_faults[i])
+            hydro_res_list = []
+            for i, row in fault_df.iterrows():
+                res = analyze_fault_hydro(
+                    float(row["Strike"]), float(row["Dip"]), friction,
+                    stress_state, p0, float(dp_faults[i])
+                )
+                hydro_res_list.append(res)
+
+            tau_eff = [r["shear_stress"] for r in hydro_res_list]
+            sigma_eff = [r["normal_stress"] for r in hydro_res_list]
+            strikes = list(fault_df["Strike"].astype(float))
+
+            if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
+                hydro_regime = "Normal"
+            elif abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
+                hydro_regime = "Reverse"
+            else:
+                hydro_regime = "Strike-Slip"
+
+            arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(
+                float(sh), float(sH), float(sV),
+                tau_eff, sigma_eff,
+                p0, dp_faults.tolist(), strikes, friction,
+                list(fault_ids),
             )
-            hydro_res_list.append(res)
+            # Portal CSV not needed; graph artifact covers this output.
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF_hydro", arcs_df)
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slipDF_hydro", slip_df)
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faultsDF_hydro", fault_df_mohr)
+            save_mohr_diagram_graph_artifact(
+                helper,
+                arcs_df,
+                slip_df,
+                fault_df_mohr,
+                step_index=STEP,
+                artifact_key="fsp-deterministic-hydrology-mohr-diagram",
+                title="Hydrology Mohr Diagram",
+                display_order=42,
+                stress_regime=hydro_regime,
+            )
 
-        tau_eff = [r["shear_stress"] for r in hydro_res_list]
-        sigma_eff = [r["normal_stress"] for r in hydro_res_list]
-        strikes = list(fault_df["Strike"].astype(float))
-
-        if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
-            hydro_regime = "Normal"
-        elif abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
-            hydro_regime = "Reverse"
+            faults_with_pp = fault_df.copy()
+            faults_with_pp["det_hydro_pressure_psi"] = dp_faults
+            faults_with_pp["pressure_psi"] = dp_faults
+            faults_with_pp["pore_pressure_slip_det_hydro"] = [
+                round(float(r.get("slip_pressure", 0.0)), 3) for r in hydro_res_list
+            ]
+            faults_with_pp["coulomb_failure_function_det_hydro"] = [
+                round(float(r.get("coulomb_failure_function", 0.0)), 3) for r in hydro_res_list
+            ]
+            faults_with_pp["shear_capacity_utilization_det_hydro"] = [
+                round(float(r.get("shear_capacity_utilization", 0.0)), 3) for r in hydro_res_list
+            ]
+            # Portal CSV not needed; graph artifact covers this output.
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_det_hydro_pp", faults_with_pp)
+        elif not has_faults:
+            pass
         else:
-            hydro_regime = "Strike-Slip"
-
-        arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(
-            float(sh), float(sH), float(sV),
-            tau_eff, sigma_eff,
-            p0, dp_faults.tolist(), strikes, friction,
-            list(fault_ids),
-        )
-        # Portal CSV not needed; graph artifact covers this output.
-        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF_hydro", arcs_df)
-        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slipDF_hydro", slip_df)
-        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faultsDF_hydro", fault_df_mohr)
-        save_mohr_diagram_graph_artifact(
-            helper,
-            arcs_df,
-            slip_df,
-            fault_df_mohr,
-            step_index=STEP,
-            artifact_key="fsp-deterministic-hydrology-mohr-diagram",
-            title="Hydrology Mohr Diagram",
-            display_order=42,
-            stress_regime=hydro_regime,
-        )
-
-        faults_with_pp = fault_df.copy()
-        faults_with_pp["det_hydro_pressure_psi"] = dp_faults
-        faults_with_pp["pressure_psi"] = dp_faults
-        faults_with_pp["pore_pressure_slip_det_hydro"] = [
-            round(float(r.get("slip_pressure", 0.0)), 3) for r in hydro_res_list
-        ]
-        faults_with_pp["coulomb_failure_function_det_hydro"] = [
-            round(float(r.get("coulomb_failure_function", 0.0)), 3) for r in hydro_res_list
-        ]
-        faults_with_pp["shear_capacity_utilization_det_hydro"] = [
-            round(float(r.get("shear_capacity_utilization", 0.0)), 3) for r in hydro_res_list
-        ]
-        # Portal CSV not needed; graph artifact covers this output.
-        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_det_hydro_pp", faults_with_pp)
+            helper.addMessageWithStepIndex(
+                STEP,
+                "Geomechanics steps were skipped for this run, so hydrology Mohr/slip overlays were not generated. Pressure results are still available.",
+                1,
+            )
 
         helper.setSuccessForStepIndex(STEP, True)
 

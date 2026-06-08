@@ -112,6 +112,13 @@ class TexNetWebToolLaunchHelper(object):
 
         return ret
 
+    def getOptionalDatasetFilePathWithStepIndexAndParamName(self, stepIndex, paramName):
+        """Returns a dataset path, or None when an optional/skipped upstream output is absent."""
+        try:
+            return self.getDatasetFilePathWithStepIndexAndParamName(stepIndex, paramName)
+        except (KeyError, TypeError):
+            return None
+
     def getDatasetFileContentsWithStepIndexAndParamNameAsDataFrame(self, stepIndex, paramName):
 
         dfRet = None

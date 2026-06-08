@@ -19,6 +19,7 @@ from fsp.io.wells import load_injection_wells, preprocess_well_data, get_date_bo
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
 from graphs.leaflet_map import save_fault_results_map_artifact
 from graphs.scientific import (
+    save_cdf_artifact,
     save_hydrology_input_distribution_histograms_artifact,
     save_probabilistic_hydrology_cdf_artifact,
 )
@@ -35,7 +36,7 @@ def _get_injection_path(helper):
         ("injection_tool_data_prob_hydro", "injection_tool_data"),
     ]:
         path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, param)
-        if path is not None:
+        if path:
             return path, dtype
     # Fall back to step 4 injection data
     for param, dtype in [
@@ -47,7 +48,7 @@ def _get_injection_path(helper):
         ("injection_tool_data", "injection_tool_data"),
     ]:
         path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP_HYDRO, param)
-        if path is not None:
+        if path:
             return path, dtype
     raise ValueError("No injection wells dataset provided.")
 
@@ -73,6 +74,14 @@ def _geomechanics_pressure_samples_by_fault(geo_cdf_df: pd.DataFrame) -> dict:
         str(fid): np.sort(group["slip_pressure"].to_numpy(dtype=float))
         for fid, group in clean.groupby("ID", sort=False)
     }
+
+
+def _has_geomechanics_cdf(geo_cdf_df: pd.DataFrame) -> bool:
+    return (
+        geo_cdf_df is not None
+        and not geo_cdf_df.empty
+        and {"ID", "slip_pressure"}.issubset(geo_cdf_df.columns)
+    )
 
 
 def _empirical_geomechanics_probabilities(geo_pressures, hydro_pressures) -> np.ndarray:
@@ -167,11 +176,13 @@ def main():
 
         # ---- Load faults ----
         faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults_model_inputs_output")
-        if faults_path is None:
+        if not faults_path:
             faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP_HYDRO, "faults")
-        if faults_path is None:
-            raise ValueError("No fault dataset provided.")
-        fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
+        if not faults_path:
+            fault_df = pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)"])
+        else:
+            fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
+        has_faults = not fault_df.empty
 
         # ---- Load injection wells ----
         report_progress("Loading wells and faults")
@@ -211,32 +222,9 @@ def main():
         # if helper.getParameterStateWithStepIndexAndParamName(STEP, "prob_hydrology_sample_inputs") is not None:
         #     helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_sample_inputs", hydro_sample_inputs)
 
-        geo_cdf_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "prob_geomechanics_cdf_graph_data_prob_hydro")
+        geo_cdf_path = helper.getOptionalDatasetFilePathWithStepIndexAndParamName(STEP, "prob_geomechanics_cdf_graph_data_prob_hydro")
         geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str}) if geo_cdf_path else pd.DataFrame()
-
-        # ---- Build per-fault CDF data for year of interest ----
-        report_progress("Building exceedance curves")
-        yr_data = mc_results[mc_results["Year"] == year_of_interest] if year_of_interest in mc_results["Year"].values else mc_results
-        cdf_rows = []
-        for fid, fault_pressures in yr_data.groupby(yr_data["ID"].astype(str), sort=False)["Pressure"]:
-            fp = pd.to_numeric(fault_pressures, errors="coerce").dropna()
-            cdf = _prob_hydrology_cdf(fp)
-            cdf.insert(0, "ID", str(fid))
-            cdf_rows.append(cdf)
-
-        if cdf_rows:
-            cdf_df = pd.concat(cdf_rows, ignore_index=True)
-            # Portal CSV not needed; graph artifact covers this output.
-            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_cdf_graph_data", cdf_df)
-            save_probabilistic_hydrology_cdf_artifact(
-                helper,
-                STEP,
-                cdf_df,
-                geo_cdf_df,
-                artifact_key="fsp-probabilistic-hydrology-cdf",
-                title="Probability of Pressure Exceedance",
-                display_order=50,
-            )
+        has_geomechanics_cdf = _has_geomechanics_cdf(geo_cdf_df)
 
         save_hydrology_input_distribution_histograms_artifact(
             helper,
@@ -247,38 +235,107 @@ def main():
             display_order=51,
         )
 
-        report_progress("Calculating fault slip probability")
-        faults_with_fsp = fault_df.copy()
-        faults_with_fsp["prob_hydro_fsp"] = 0.0
-        pressure_groups = {
-            str(fid): pd.to_numeric(group["Pressure"], errors="coerce").dropna().astype(float)
-            for fid, group in yr_data.groupby(yr_data["ID"].astype(str), sort=False)
-        }
-        geo_groups = _geomechanics_pressure_samples_by_fault(geo_cdf_df)
-        _, probabilities = _combined_slip_potential_rows(
-            faults_with_fsp["FaultID"].astype(str),
-            pressure_groups,
-            geo_groups,
-            year_of_interest,
-        )
-        faults_with_fsp["prob_hydro_fsp"] = (
-            faults_with_fsp["FaultID"].astype(str).map(probabilities).fillna(0.0)
-        )
+        # ---- Build per-fault CDF data for year of interest ----
+        yr_data = mc_results[mc_results["Year"] == year_of_interest] if year_of_interest in mc_results["Year"].values else mc_results
+        if has_faults:
+            report_progress("Building exceedance curves")
+            cdf_rows = []
+            for fid, fault_pressures in yr_data.groupby(yr_data["ID"].astype(str), sort=False)["Pressure"]:
+                fp = pd.to_numeric(fault_pressures, errors="coerce").dropna()
+                cdf = _prob_hydrology_cdf(fp)
+                cdf.insert(0, "ID", str(fid))
+                cdf_rows.append(cdf)
 
-        # Portal CSV not needed; graph artifact covers this output.
-        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_hydro_fsp", faults_with_fsp)
-        # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slip_potential_results", pd.DataFrame(slip_rows))
-        save_fault_results_map_artifact(
-            helper,
-            STEP,
-            faults_with_fsp,
-            artifact_key="fsp-probabilistic-hydrology-map",
-            title="Probabilistic Hydrology FSP Map",
-            caption="Leaflet map of probabilistic hydrology fault slip probability results.",
-            display_order=54,
-            result_fields=["prob_hydro_fsp"],
-            color="#be123c",
-        )
+            if cdf_rows:
+                cdf_df = pd.concat(cdf_rows, ignore_index=True)
+                # Portal CSV not needed; graph artifact covers this output.
+                # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "prob_hydrology_cdf_graph_data", cdf_df)
+                if has_geomechanics_cdf:
+                    save_probabilistic_hydrology_cdf_artifact(
+                        helper,
+                        STEP,
+                        cdf_df,
+                        geo_cdf_df,
+                        artifact_key="fsp-probabilistic-hydrology-cdf",
+                        title="Probability of Pressure Exceedance",
+                        display_order=50,
+                    )
+                else:
+                    save_cdf_artifact(
+                        helper,
+                        STEP,
+                        cdf_df,
+                        artifact_key="fsp-probabilistic-hydrology-cdf",
+                        title="Probability of Pressure Exceedance",
+                        pressure_label="Pressure Change (psi)",
+                        probability_label="Exceedance Probability",
+                        display_order=50,
+                        show_color_tab=False,
+                    )
+
+            report_progress("Calculating fault results")
+            faults_with_fsp = fault_df.copy()
+            pressure_groups = {
+                str(fid): pd.to_numeric(group["Pressure"], errors="coerce").dropna().astype(float)
+                for fid, group in yr_data.groupby(yr_data["ID"].astype(str), sort=False)
+            }
+            if has_geomechanics_cdf:
+                faults_with_fsp["prob_hydro_fsp"] = 0.0
+                geo_groups = _geomechanics_pressure_samples_by_fault(geo_cdf_df)
+                _, probabilities = _combined_slip_potential_rows(
+                    faults_with_fsp["FaultID"].astype(str),
+                    pressure_groups,
+                    geo_groups,
+                    year_of_interest,
+                )
+                faults_with_fsp["prob_hydro_fsp"] = (
+                    faults_with_fsp["FaultID"].astype(str).map(probabilities).fillna(0.0)
+                )
+                result_fields = ["prob_hydro_fsp"]
+                map_title = "Probabilistic Hydrology FSP Map"
+                map_caption = "Leaflet map of probabilistic hydrology fault slip probability results."
+                value_column = None
+                legend_title = "Value"
+            else:
+                helper.addMessageWithStepIndex(
+                    STEP,
+                    "Geomechanics steps were skipped for this run, so probabilistic hydrology FSP values were not generated. Pressure results are still available.",
+                    1,
+                )
+                pressure_lookup = {
+                    fid: float(values.mean()) if len(values) else None
+                    for fid, values in pressure_groups.items()
+                }
+                faults_with_fsp["prob_hydro_fsp"] = None
+                faults_with_fsp["prob_hydro_pressure"] = faults_with_fsp["FaultID"].astype(str).map(pressure_lookup)
+                result_fields = ["prob_hydro_pressure"]
+                map_title = "Probabilistic Hydrology Pressure Map"
+                map_caption = "Leaflet map of probabilistic hydrology pressure results. FSP was not computed because geomechanics was skipped."
+                value_column = "prob_hydro_pressure"
+                legend_title = "Mean Probabilistic Hydrology Pressure"
+
+            # Portal CSV not needed; graph artifact covers this output.
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_hydro_fsp", faults_with_fsp)
+            # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "slip_potential_results", pd.DataFrame(slip_rows))
+            save_fault_results_map_artifact(
+                helper,
+                STEP,
+                faults_with_fsp,
+                artifact_key="fsp-probabilistic-hydrology-map",
+                title=map_title,
+                caption=map_caption,
+                display_order=54,
+                result_fields=result_fields,
+                color="#be123c",
+                value_column=value_column,
+                legend_title=legend_title,
+            )
+        else:
+            helper.addMessageWithStepIndex(
+                STEP,
+                "No fault dataset was provided, so probabilistic hydrology fault pressure and FSP outputs were skipped. Hydrology input distribution outputs are still available.",
+                1,
+            )
 
         helper.setSuccessForStepIndex(STEP, True)
 

@@ -31,6 +31,14 @@ STEP_HYDRO = 3  # Step 4
 STEP_PROB_HYDRO = 4  # Step 5
 
 
+def _has_geomechanics_cdf(geo_cdf_df: pd.DataFrame) -> bool:
+    return (
+        geo_cdf_df is not None
+        and not geo_cdf_df.empty
+        and {"ID", "slip_pressure", "probability"}.issubset(geo_cdf_df.columns)
+    )
+
+
 def _get_injection_path(helper):
     """Look for injection data in step 6 parameters (summary variants)."""
     for param, dtype in [
@@ -39,7 +47,7 @@ def _get_injection_path(helper):
         ("injection_tool_data_summary", "injection_tool_data"),
     ]:
         path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, param)
-        if path is not None:
+        if path:
             return path, dtype
     raise ValueError("No injection wells dataset provided for summary step.")
 
@@ -84,6 +92,9 @@ def _calculate_fsp(geo_cdf_df: pd.DataFrame,
     Returns DataFrame with columns: ID, Year, FSP, epoch_time
     """
     rows = []
+    if not _has_geomechanics_cdf(geo_cdf_df):
+        return pd.DataFrame(columns=["ID", "Year", "FSP", "epoch_time"])
+
     geo_groups = {
         str(fid): group.sort_values("slip_pressure")
         for fid, group in geo_cdf_df.assign(ID=geo_cdf_df["ID"].astype(str)).groupby("ID", sort=False)
@@ -178,15 +189,26 @@ def main():
 
         # ---- Load fault data ----
         fault_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults")
-        if fault_path is None:
-            raise ValueError("Required fault dataset not found.")
-        fault_df = pd.read_csv(fault_path, dtype={"FaultID": str})
+        if not fault_path:
+            fault_df = pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)"])
+        else:
+            fault_df = pd.read_csv(fault_path, dtype={"FaultID": str})
+        has_faults = not fault_df.empty
 
-        # ---- Load probabilistic geomechanics CDF ----
-        geo_cdf_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "prob_geomechanics_cdf_graph_data_summary")
-        if geo_cdf_path is None:
-            raise ValueError("Probabilistic geomechanics CDF data not found.")
-        geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str})
+        # ---- Load optional probabilistic geomechanics CDF ----
+        geo_cdf_path = helper.getOptionalDatasetFilePathWithStepIndexAndParamName(STEP, "prob_geomechanics_cdf_graph_data_summary")
+        geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str}) if geo_cdf_path else pd.DataFrame()
+        has_geomechanics_cdf = _has_geomechanics_cdf(geo_cdf_df)
+
+        if not has_faults:
+            helper.addMessageWithStepIndex(
+                STEP,
+                "No fault dataset was provided, so summary fault pressure and FSP outputs were skipped.",
+                1,
+            )
+            helper.setSuccessForStepIndex(STEP, True)
+            helper.writeResultsFile()
+            return
 
         # ---- Hydrology parameters ----
         h_ft = float(_p(STEP_HYDRO, "aquifer_thickness_ft"))
@@ -247,28 +269,40 @@ def main():
             lambda yr: float((date(int(yr), 1, 1) - date(1970, 1, 1)).days * 86400.0 * 1000.0)
         )
 
-        # ---- Calculate FSP per fault per year ----
-        report_progress("Calculating fault slip potential")
-        fsp_source_df = pressure_df if model_run == 0 else pressure_samples_df
-        fsp_df = _calculate_fsp(geo_cdf_df, fsp_source_df)
-        fsp_df["FSP"] = fsp_df["FSP"].round(2)
+        # ---- Calculate optional FSP per fault per year ----
+        if has_geomechanics_cdf:
+            report_progress("Calculating fault slip potential")
+            fsp_source_df = pressure_df if model_run == 0 else pressure_samples_df
+            fsp_df = _calculate_fsp(geo_cdf_df, fsp_source_df)
+            fsp_df["FSP"] = fsp_df["FSP"].round(2)
+        else:
+            helper.addMessageWithStepIndex(
+                STEP,
+                "Geomechanics steps were skipped for this run, so FSP/slip-probability outputs were not generated. Pressure results are still available.",
+                1,
+            )
+            fsp_df = pd.DataFrame(columns=["ID", "Year", "FSP", "epoch_time"])
 
         # ---- Populate fault summary at year of interest ----
         fault_summary = fault_df.copy()
-        fault_summary["summary_fsp"] = 0.0
+        fault_summary["summary_fsp"] = None
         fault_summary["summary_pressure"] = 0.0
 
-        fsp_yr = fsp_df[fsp_df["Year"] == year_of_interest]
         pressure_yr = pressure_df[pressure_df["Year"] == year_of_interest]
 
-        fsp_lookup = fsp_yr.assign(ID=fsp_yr["ID"].astype(str)).set_index("ID")["FSP"].to_dict()
+        if has_geomechanics_cdf:
+            fsp_yr = fsp_df[fsp_df["Year"] == year_of_interest]
+            fsp_lookup = fsp_yr.assign(ID=fsp_yr["ID"].astype(str)).set_index("ID")["FSP"].to_dict()
+        else:
+            fsp_lookup = {}
         pressure_lookup = (
             pressure_yr.assign(ID=pressure_yr["ID"].astype(str))
             .set_index("ID")["Pressure"]
             .to_dict()
         )
         fault_ids_series = fault_summary["FaultID"].astype(str)
-        fault_summary["summary_fsp"] = fault_ids_series.map(fsp_lookup).fillna(0.0).astype(float)
+        if has_geomechanics_cdf:
+            fault_summary["summary_fsp"] = fault_ids_series.map(fsp_lookup).fillna(0.0).astype(float)
         fault_summary["summary_pressure"] = fault_ids_series.map(pressure_lookup).fillna(0.0).astype(float)
 
         # ---- Save outputs ----
@@ -277,17 +311,33 @@ def main():
         # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "pressure_through_time_results", pressure_df)
         # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "fsp_through_time_results", fsp_df)
         report_progress("Generating summary maps")
-        save_summary_artifacts(helper, STEP, fsp_df, pressure_df, year_of_interest=year_of_interest)
+        save_summary_artifacts(
+            helper,
+            STEP,
+            fsp_df,
+            pressure_df,
+            year_of_interest=year_of_interest,
+            include_fsp=has_geomechanics_cdf,
+        )
+        result_fields = ["summary_fsp", "summary_pressure"] if has_geomechanics_cdf else ["summary_pressure"]
+        map_title = "Summary FSP Map" if has_geomechanics_cdf else "Summary Pressure Map"
+        map_caption = (
+            "Leaflet map of summary FSP and pressure results by fault."
+            if has_geomechanics_cdf
+            else "Leaflet map of summary pressure results by fault. FSP was not computed because geomechanics was skipped."
+        )
         save_fault_results_map_artifact(
             helper,
             STEP,
             fault_summary,
             artifact_key="fsp-summary-map",
-            title="Summary FSP Map",
-            caption="Leaflet map of summary FSP and pressure results by fault.",
+            title=map_title,
+            caption=map_caption,
             display_order=62,
-            result_fields=["summary_fsp", "summary_pressure"],
+            result_fields=result_fields,
             color="#059669",
+            value_column="summary_pressure",
+            legend_title="Summary Pressure",
         )
 
         # Portal CSV not needed; graph artifact covers this output.

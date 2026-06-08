@@ -21,6 +21,21 @@ from progress import report_progress
 
 STEP = 0   # 0-based index for Step 1
 
+FAULT_OUTPUT_COLUMNS = [
+    "FaultID",
+    "Latitude(WGS84)",
+    "Longitude(WGS84)",
+    "Strike",
+    "Dip",
+    "LengthKm",
+    "slip_pressure",
+    "coulomb_failure_function",
+    "summary_end_year",
+    "summary_fsp",
+    "summary_pressure",
+    "prob_hydro_fsp",
+]
+
 
 def _get_injection_path(helper):
     """Return (path, data_type) for the first injection dataset found."""
@@ -56,6 +71,7 @@ def main():
         randomize = helper.getParameterValueWithStepIndexAndParamName(STEP, "randomize_faults")
         if randomize is None:
             randomize = False
+        faults_provided = True
 
         if randomize:
             num_random = helper.getParameterValueWithStepIndexAndParamName(STEP, "num_random_faults") or 10
@@ -68,21 +84,33 @@ def main():
             faults_df = generate_randomized_faults(int(num_random), strike_min, strike_max,
                                                     dip_min, dip_max)
         else:
-            fault_path, fault_type = _get_fault_path(helper, randomize)
-            if fault_type == "fsp_native":
+            try:
+                fault_path, fault_type = _get_fault_path(helper, randomize)
+            except ValueError:
+                fault_path, fault_type = None, None
+                faults_provided = False
+            if fault_path is None:
+                faults_df = pd.DataFrame(columns=FAULT_OUTPUT_COLUMNS)
+                helper.addMessageWithStepIndex(
+                    STEP,
+                    "No fault dataset was provided. Fault-level geomechanics and fault-level pressure outputs will be skipped; injection-well pressure outputs are still available.",
+                    1,
+                )
+            elif fault_type == "fsp_native":
                 faults_df = load_faults_csv(fault_path)
             else:
                 faults_df = load_faults_shapefile(fault_path)
 
         # Validate fault count
-        n_unique = faults_df["FaultID"].nunique()
-        if n_unique > 1000:
-            msg = "Number of faults provided is greater than 1000. Please provide a smaller number of faults."
-            helper.addMessageWithStepIndex(STEP, msg, 2)
-            raise ValueError(msg)
+        if faults_provided:
+            n_unique = faults_df["FaultID"].nunique()
+            if n_unique > 1000:
+                msg = "Number of faults provided is greater than 1000. Please provide a smaller number of faults."
+                helper.addMessageWithStepIndex(STEP, msg, 2)
+                raise ValueError(msg)
 
         # Add WKT column
-        if "LengthKm" in faults_df.columns:
+        if faults_provided and "LengthKm" in faults_df.columns:
             faults_df = latlon_to_wkt(faults_df)
 
         # Add placeholder columns for downstream steps

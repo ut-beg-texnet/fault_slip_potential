@@ -1905,6 +1905,8 @@ def save_cdf_artifact(
     pressure_label: str,
     probability_label: str,
     display_order: int,
+    show_color_tab: bool = True,
+    color_tab_label: str = "Pore Pressure to Slip",
 ):
     prefix = _warn_prefix(title)
     try:
@@ -1951,7 +1953,8 @@ def save_cdf_artifact(
             auto_color_max=auto_color_max,
             y_range=[0, 1],
             y_tickformat=".2f",
-            color_tab_label="Pore Pressure to Slip",
+            show_color_tab=show_color_tab,
+            color_tab_label=color_tab_label,
         )
         return _write_html_artifact(
             helper,
@@ -3253,25 +3256,27 @@ def save_summary_artifacts(
     fsp_df: pd.DataFrame,
     pressure_df: pd.DataFrame,
     year_of_interest: Optional[float] = None,
+    include_fsp: bool = True,
 ):
     """Save FSP Through Time and Pressure Through Time graph artifacts for Step 6."""
-    save_time_series_artifact(
-        helper,
-        step_index,
-        fsp_df,
-        value_column="FSP",
-        artifact_key="fsp-summary-fsp-through-time",
-        title="FSP Through Time",
-        y_label="Fault Slip Potential",
-        display_order=60,
-        y_range=[0, 1],
-        show_fsp_background=True,
-        show_color_tab=True,
-        color_tab_label="FSP Range",
-        default_color_min=0.0,
-        default_color_max=1.0,
-        year_of_interest=year_of_interest,
-    )
+    if include_fsp:
+        save_time_series_artifact(
+            helper,
+            step_index,
+            fsp_df,
+            value_column="FSP",
+            artifact_key="fsp-summary-fsp-through-time",
+            title="FSP Through Time",
+            y_label="Fault Slip Potential",
+            display_order=60,
+            y_range=[0, 1],
+            show_fsp_background=True,
+            show_color_tab=True,
+            color_tab_label="FSP Range",
+            default_color_min=0.0,
+            default_color_max=1.0,
+            year_of_interest=year_of_interest,
+        )
     save_time_series_artifact(
         helper,
         step_index,

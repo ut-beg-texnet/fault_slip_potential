@@ -552,6 +552,8 @@ def main():
         if faults_path is None:
             raise ValueError("No fault dataset provided.")
         fault_inputs = pd.read_csv(faults_path, dtype={"FaultID": str})
+        if fault_inputs.empty:
+            raise ValueError("A fault dataset is required to run probabilistic geomechanics. Skip this step for injection-pressure-only runs.")
 
         # Populate FrictionCoefficient column
         if "FrictionCoefficient" not in fault_inputs.columns:

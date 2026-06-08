@@ -101,6 +101,8 @@ def main():
         if faults_path is None:
             raise ValueError("No faults dataset provided.")
         faults_df = pd.read_csv(faults_path)
+        if faults_df.empty:
+            raise ValueError("A fault dataset is required to run deterministic geomechanics. Skip this step for injection-pressure-only runs.")
 
         # ---- Calculate stresses ----
         report_progress("Calculating stress field")
