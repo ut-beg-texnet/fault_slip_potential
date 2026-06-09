@@ -45,6 +45,11 @@ SLIP_PRESSURE_COLOR_SCALE = [
     [1.0, "#007f00"],
 ]
 
+# FSP scale: green at 0 (low/safe) -> red at 1 (high/dangerous). Reverse of the slip-pressure
+# scale, so the Leaflet renderer (which normalizes value->[0,1] with no 1-x hook) matches the
+# CDF graph's _interpolate_colorscale(SLIP_PRESSURE_COLOR_SCALE, 1 - fsp).
+FSP_COLOR_SCALE = [[round(1.0 - stop, 2), color] for stop, color in reversed(SLIP_PRESSURE_COLOR_SCALE)]
+
 # Backwards-compatible alias for older graph helpers/tests.
 MOHR_COLOR_SCALE = SLIP_PRESSURE_COLOR_SCALE
 

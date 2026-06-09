@@ -204,6 +204,8 @@ def _style_with_value_scale(
     value_column: Optional[str],
     legend_title: str,
     value_min_default: Optional[float] = None,
+    value_max_default: Optional[float] = None,
+    color_scale=SLIP_PRESSURE_COLOR_SCALE,
 ):
     if not value_column or value_column not in df.columns:
         return style
@@ -212,12 +214,14 @@ def _style_with_value_scale(
         return style
     if value_min_default is not None:
         min_value = float(value_min_default)
-        if max_value <= min_value:
-            max_value = min_value + 1.0
+    if value_max_default is not None:
+        max_value = float(value_max_default)
+    if max_value <= min_value:
+        max_value = min_value + 1.0
     scaled_style = dict(style)
     scaled_style.update({
         "valueColumn": value_column,
-        "colorScale": SLIP_PRESSURE_COLOR_SCALE,
+        "colorScale": color_scale,
         "legendTitle": legend_title,
         "minValue": min_value,
         "maxValue": max_value,
@@ -384,6 +388,8 @@ def _point_layer(
     value_column: Optional[str] = None,
     legend_title: str = "Value",
     value_min_default: Optional[float] = None,
+    value_max_default: Optional[float] = None,
+    color_scale=SLIP_PRESSURE_COLOR_SCALE,
     field_labels: Optional[dict] = None,
 ):
     required = [latitude_column, longitude_column]
@@ -399,6 +405,8 @@ def _point_layer(
         value_column=value_column,
         legend_title=legend_title,
         value_min_default=value_min_default,
+        value_max_default=value_max_default,
+        color_scale=color_scale,
     )
     return {
         "key": key,
@@ -436,6 +444,8 @@ def _wkt_layer(
     value_column: Optional[str] = None,
     legend_title: str = "Value",
     value_min_default: Optional[float] = None,
+    value_max_default: Optional[float] = None,
+    color_scale=SLIP_PRESSURE_COLOR_SCALE,
     field_labels: Optional[dict] = None,
 ):
     if not has_columns(df, [wkt_column]):
@@ -450,6 +460,8 @@ def _wkt_layer(
         value_column=value_column,
         legend_title=legend_title,
         value_min_default=value_min_default,
+        value_max_default=value_max_default,
+        color_scale=color_scale,
     )
     return {
         "key": key,
@@ -635,6 +647,8 @@ def save_fault_results_map_artifact(
     value_column: Optional[str] = None,
     legend_title: str = "Value",
     value_min_default: Optional[float] = None,
+    value_max_default: Optional[float] = None,
+    color_scale=SLIP_PRESSURE_COLOR_SCALE,
     well_df: Optional[pd.DataFrame] = None,
     extra_layers: Optional[list] = None,
     field_labels: Optional[dict] = None,
@@ -674,6 +688,8 @@ def save_fault_results_map_artifact(
                 value_column=value_column,
                 legend_title=legend_title,
                 value_min_default=value_min_default,
+                value_max_default=value_max_default,
+                color_scale=color_scale,
                 field_labels=field_labels,
             )
             bounds = _numeric_bounds(df, "Latitude(WGS84)", "Longitude(WGS84)")
@@ -690,6 +706,8 @@ def save_fault_results_map_artifact(
                 value_column=value_column,
                 legend_title=legend_title,
                 value_min_default=value_min_default,
+                value_max_default=value_max_default,
+                color_scale=color_scale,
                 field_labels=field_labels,
             )
 
@@ -714,6 +732,8 @@ def save_fault_results_map_artifact(
                 value_column=value_column,
                 legend_title=legend_title,
                 value_min_default=value_min_default,
+                value_max_default=value_max_default,
+                color_scale=color_scale,
                 field_labels=field_labels,
             )
             midpoint_layer = _suppress_layer_legend(midpoint_layer)
@@ -739,6 +759,8 @@ def save_fault_results_map_artifact(
                         value_column=value_column,
                         legend_title=legend_title,
                         value_min_default=value_min_default,
+                        value_max_default=value_max_default,
+                        color_scale=color_scale,
                         field_labels=field_labels,
                     )
                 else:
@@ -755,6 +777,8 @@ def save_fault_results_map_artifact(
                         value_column=value_column,
                         legend_title=legend_title,
                         value_min_default=value_min_default,
+                        value_max_default=value_max_default,
+                        color_scale=color_scale,
                         field_labels=field_labels,
                     )
                 single_layer = _suppress_layer_legend(single_layer)
@@ -776,6 +800,8 @@ def save_fault_results_map_artifact(
                         value_column=value_column,
                         legend_title=legend_title,
                         value_min_default=value_min_default,
+                        value_max_default=value_max_default,
+                        color_scale=color_scale,
                         field_labels=field_labels,
                     )
                     single_midpoint_layer = _suppress_layer_legend(single_midpoint_layer)

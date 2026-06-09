@@ -17,6 +17,7 @@ from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.models.hydrology import HydrologyParams
 from fsp.io.wells import load_injection_wells, preprocess_well_data, get_date_bounds
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
+from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 from graphs.leaflet_map import save_fault_results_map_artifact
 from graphs.scientific import (
     save_cdf_artifact,
@@ -294,8 +295,13 @@ def main():
                 result_fields = ["prob_hydro_fsp"]
                 map_title = "Probabilistic Hydrology FSP Map"
                 map_caption = "Leaflet map of probabilistic hydrology fault slip probability results."
-                value_column = None
-                legend_title = "Value"
+                value_column = "prob_hydro_fsp"
+                legend_title = "Probabilistic Hydrology FSP"
+                # Color faults green (FSP 0) -> red (FSP 1) on a fixed 0-1 scale, matching the
+                # probabilistic-hydrology CDF graph and the legacy MATLAB stoplight scheme.
+                map_color_scale = FSP_COLOR_SCALE
+                map_value_min = 0.0
+                map_value_max = 1.0
             else:
                 helper.addMessageWithStepIndex(
                     STEP,
@@ -313,6 +319,9 @@ def main():
                 map_caption = "Leaflet map of probabilistic hydrology pressure results. FSP was not computed because geomechanics was skipped."
                 value_column = "prob_hydro_pressure"
                 legend_title = "Mean Probabilistic Hydrology Pressure"
+                map_color_scale = SLIP_PRESSURE_COLOR_SCALE
+                map_value_min = None
+                map_value_max = None
 
             # Portal CSV not needed; graph artifact covers this output.
             # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_prob_hydro_fsp", faults_with_fsp)
@@ -329,6 +338,9 @@ def main():
                 color="#be123c",
                 value_column=value_column,
                 legend_title=legend_title,
+                color_scale=map_color_scale,
+                value_min_default=map_value_min,
+                value_max_default=map_value_max,
             )
         else:
             helper.addMessageWithStepIndex(
