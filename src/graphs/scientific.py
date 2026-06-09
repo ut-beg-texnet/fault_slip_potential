@@ -1675,7 +1675,7 @@ def _paired_hydrology_geomechanics_cdf_html(
             <button type="button" class="legend-button" onclick="setAllSelection(false)">Clear All</button>
           </div>
         </div>
-        <div class="selector-note">Solid blue curves show hydrology pressure exceedance. Dashed curves show the Step 3 geomechanics fault-slip CDF.</div>
+        <div class="selector-note">Solid blue curves show hydrology pressure exceedance. Dashed curves show the Step 3 geomechanics fault-slip CDF, colored green&rarr;red by each fault's FSP.</div>
         <div id="series-legend" class="series-legend"></div>
       </aside>
     </div>
@@ -1791,6 +1791,7 @@ def _paired_hydrology_geomechanics_cdf_html(
 
         const swatch = document.createElement('span');
         swatch.className = 'legend-swatch';
+        swatch.style.background = series.color || '#2563eb';
 
         const text = document.createElement('span');
         text.className = 'legend-label';
@@ -1834,7 +1835,7 @@ def _paired_hydrology_geomechanics_cdf_html(
             mode: 'lines',
             type: 'scatter',
             name: 'Geomechanics fault-slip CDF - ' + (series.label || seriesId),
-            line: {{ width: activeSeriesIds.length > 8 ? 1.8 : 2.4, color: '#475569', dash: 'dash' }},
+            line: {{ width: activeSeriesIds.length > 8 ? 1.8 : 2.4, color: series.color || '#475569', dash: 'dash' }},
             hovertemplate: 'Fault: ' + (series.label || seriesId) + '<br>Geomechanics slip pressure: %{{x:,.2f}} psi<br>Slip potential: %{{y:.3f}}<br>FSP: ' + formatFsp(series.fsp) + '<extra></extra>'
           }});
         }}
@@ -2035,6 +2036,10 @@ def save_probabilistic_hydrology_cdf_artifact(
             series_payload[str(fault_id)] = {
                 "label": str(fault_id),
                 "fsp": fsp,
+                # Color the geomechanics CDF curve by FSP (green=low, red=high), matching the
+                # legacy MATLAB getcolor(cmapGYR, fsp, 0, 1). SLIP_PRESSURE_COLOR_SCALE runs
+                # red->green over 0->1, so pass (1 - fsp) to land green at fsp=0, red at fsp=1.
+                "color": _interpolate_colorscale(SLIP_PRESSURE_COLOR_SCALE, 1.0 - fsp),
                 "stats": stats,
                 "hydrology": {
                     "x": hyd_fault_df["slip_pressure"].round(6).tolist(),
