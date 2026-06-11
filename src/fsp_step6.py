@@ -22,6 +22,7 @@ from fsp.hydrology.pressure_field import (
     pfieldcalc_all_rates_for_distances,
     well_fault_distances_m,
 )
+from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 from graphs.leaflet_map import save_fault_results_map_artifact
 from graphs.scientific import save_summary_artifacts
 from progress import report_progress
@@ -125,6 +126,61 @@ def _calculate_fsp(geo_cdf_df: pd.DataFrame,
             rows.append({"ID": str(fid), "Year": int(yr), "FSP": round(fsp, 2), "epoch_time": epoch})
 
     return pd.DataFrame(rows)
+
+
+def _fault_summary_for_year(
+    fault_df: pd.DataFrame,
+    fsp_df: pd.DataFrame,
+    pressure_df: pd.DataFrame,
+    year_of_interest: int,
+    *,
+    include_fsp: bool,
+) -> pd.DataFrame:
+    fault_summary = fault_df.copy()
+    fault_summary["summary_fsp"] = None
+    fault_summary["summary_pressure"] = 0.0
+
+    pressure_yr = pressure_df[pressure_df["Year"] == year_of_interest]
+    pressure_lookup = (
+        pressure_yr.assign(ID=pressure_yr["ID"].astype(str))
+        .set_index("ID")["Pressure"]
+        .to_dict()
+    )
+
+    fault_ids = fault_summary["FaultID"].astype(str)
+    if include_fsp:
+        fsp_yr = fsp_df[fsp_df["Year"] == year_of_interest]
+        fsp_lookup = fsp_yr.assign(ID=fsp_yr["ID"].astype(str)).set_index("ID")["FSP"].to_dict()
+        fault_summary["summary_fsp"] = fault_ids.map(fsp_lookup).fillna(0.0).astype(float)
+    fault_summary["summary_pressure"] = fault_ids.map(pressure_lookup).fillna(0.0).astype(float)
+    return fault_summary
+
+
+def _summary_map_configuration(has_geomechanics_cdf: bool) -> dict:
+    if has_geomechanics_cdf:
+        return {
+            "result_fields": ["summary_fsp", "summary_pressure"],
+            "title": "Summary FSP Map",
+            "caption": "Leaflet map of summary FSP and pressure results by fault.",
+            "value_column": "summary_fsp",
+            "legend_title": "Summary FSP",
+            "color_scale": FSP_COLOR_SCALE,
+            "value_min_default": 0.0,
+            "value_max_default": 1.0,
+        }
+    return {
+        "result_fields": ["summary_pressure"],
+        "title": "Summary Pressure Map",
+        "caption": (
+            "Leaflet map of summary pressure results by fault. "
+            "FSP was not computed because geomechanics was skipped."
+        ),
+        "value_column": "summary_pressure",
+        "legend_title": "Summary Pressure",
+        "color_scale": SLIP_PRESSURE_COLOR_SCALE,
+        "value_min_default": None,
+        "value_max_default": None,
+    }
 
 
 def _run_deterministic_hydro_time_series(STRho, well_data_list, fault_df, years_to_analyze):
@@ -284,26 +340,13 @@ def main():
             fsp_df = pd.DataFrame(columns=["ID", "Year", "FSP", "epoch_time"])
 
         # ---- Populate fault summary at year of interest ----
-        fault_summary = fault_df.copy()
-        fault_summary["summary_fsp"] = None
-        fault_summary["summary_pressure"] = 0.0
-
-        pressure_yr = pressure_df[pressure_df["Year"] == year_of_interest]
-
-        if has_geomechanics_cdf:
-            fsp_yr = fsp_df[fsp_df["Year"] == year_of_interest]
-            fsp_lookup = fsp_yr.assign(ID=fsp_yr["ID"].astype(str)).set_index("ID")["FSP"].to_dict()
-        else:
-            fsp_lookup = {}
-        pressure_lookup = (
-            pressure_yr.assign(ID=pressure_yr["ID"].astype(str))
-            .set_index("ID")["Pressure"]
-            .to_dict()
+        fault_summary = _fault_summary_for_year(
+            fault_df,
+            fsp_df,
+            pressure_df,
+            year_of_interest,
+            include_fsp=has_geomechanics_cdf,
         )
-        fault_ids_series = fault_summary["FaultID"].astype(str)
-        if has_geomechanics_cdf:
-            fault_summary["summary_fsp"] = fault_ids_series.map(fsp_lookup).fillna(0.0).astype(float)
-        fault_summary["summary_pressure"] = fault_ids_series.map(pressure_lookup).fillna(0.0).astype(float)
 
         # ---- Save outputs ----
         # Portal CSV not needed; graph artifact covers this output.
@@ -319,25 +362,22 @@ def main():
             year_of_interest=year_of_interest,
             include_fsp=has_geomechanics_cdf,
         )
-        result_fields = ["summary_fsp", "summary_pressure"] if has_geomechanics_cdf else ["summary_pressure"]
-        map_title = "Summary FSP Map" if has_geomechanics_cdf else "Summary Pressure Map"
-        map_caption = (
-            "Leaflet map of summary FSP and pressure results by fault."
-            if has_geomechanics_cdf
-            else "Leaflet map of summary pressure results by fault. FSP was not computed because geomechanics was skipped."
-        )
+        map_config = _summary_map_configuration(has_geomechanics_cdf)
         save_fault_results_map_artifact(
             helper,
             STEP,
             fault_summary,
             artifact_key="fsp-summary-map",
-            title=map_title,
-            caption=map_caption,
+            title=map_config["title"],
+            caption=map_config["caption"],
             display_order=62,
-            result_fields=result_fields,
+            result_fields=map_config["result_fields"],
             color="#059669",
-            value_column="summary_pressure",
-            legend_title="Summary Pressure",
+            value_column=map_config["value_column"],
+            legend_title=map_config["legend_title"],
+            color_scale=map_config["color_scale"],
+            value_min_default=map_config["value_min_default"],
+            value_max_default=map_config["value_max_default"],
         )
 
         # Portal CSV not needed; graph artifact covers this output.

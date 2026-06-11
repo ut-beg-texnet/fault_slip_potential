@@ -34,8 +34,11 @@ from fsp_step5 import (
 )
 from fsp_step6 import (
     _calculate_fsp as _calculate_summary_fsp,
+    _fault_summary_for_year,
     _has_geomechanics_cdf as _step6_has_geomechanics_cdf,
+    _summary_map_configuration,
 )
+from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 
 
 class TestCalcST:
@@ -406,6 +409,56 @@ def test_summary_fsp_uses_empirical_samples_for_probabilistic_hydrology():
     fsp_df = _calculate_summary_fsp(geo_cdf_df, hydro_df)
 
     assert fsp_df.loc[0, "FSP"] == pytest.approx(0.42)
+
+
+def test_summary_fault_values_use_only_the_selected_year():
+    faults = pd.DataFrame({"FaultID": ["A", "B", "C"]})
+    fsp_df = pd.DataFrame({
+        "ID": ["A", "A", "B"],
+        "Year": [2031, 2032, 2032],
+        "FSP": [0.1, 0.8, 0.4],
+    })
+    pressure_df = pd.DataFrame({
+        "ID": ["A", "A", "B"],
+        "Year": [2031, 2032, 2032],
+        "Pressure": [10.0, 80.0, 40.0],
+    })
+
+    summary = _fault_summary_for_year(
+        faults,
+        fsp_df,
+        pressure_df,
+        2032,
+        include_fsp=True,
+    ).set_index("FaultID")
+
+    assert summary.loc["A", "summary_fsp"] == pytest.approx(0.8)
+    assert summary.loc["A", "summary_pressure"] == pytest.approx(80.0)
+    assert summary.loc["B", "summary_fsp"] == pytest.approx(0.4)
+    assert summary.loc["C", "summary_fsp"] == pytest.approx(0.0)
+    assert summary.loc["C", "summary_pressure"] == pytest.approx(0.0)
+
+
+def test_summary_map_configuration_colors_fsp_on_fixed_probability_range():
+    config = _summary_map_configuration(True)
+
+    assert config["result_fields"] == ["summary_fsp", "summary_pressure"]
+    assert config["value_column"] == "summary_fsp"
+    assert config["legend_title"] == "Summary FSP"
+    assert config["color_scale"] == FSP_COLOR_SCALE
+    assert config["value_min_default"] == 0.0
+    assert config["value_max_default"] == 1.0
+
+
+def test_summary_map_configuration_falls_back_to_pressure_without_geomechanics():
+    config = _summary_map_configuration(False)
+
+    assert config["result_fields"] == ["summary_pressure"]
+    assert config["value_column"] == "summary_pressure"
+    assert config["legend_title"] == "Summary Pressure"
+    assert config["color_scale"] == SLIP_PRESSURE_COLOR_SCALE
+    assert config["value_min_default"] is None
+    assert config["value_max_default"] is None
 
 
 def test_variable_fsp_demo_csvs_have_expected_schema_and_calibration():

@@ -19,6 +19,7 @@ from graphs.hydrology_map import (
 )
 from graphs.injection_rate import save_injection_rate_graph_artifact
 from graphs.mohr_diagram import save_mohr_diagram_graph_artifact
+from graphs.artifacts import FSP_COLOR_SCALE
 
 
 class DummyHelper:
@@ -182,6 +183,45 @@ def test_geomechanics_map_manifest_includes_faults_wells_and_dynamic_range_contr
     assert "fault-row-value-2" in set(fault_layer_df["FaultID"])
     assert "well-row-value-1" in set(wells_layer_df["WellID"])
     assert "well-row-value-2" in set(wells_layer_df["WellID"])
+
+
+def test_summary_fsp_map_manifest_uses_fixed_fsp_color_range(tmp_path):
+    helper = DummyHelper(tmp_path)
+    faults_df = pd.DataFrame({
+        "FaultID": ["fault-1", "fault-2"],
+        "wkt": ["LINESTRING (-100 31,-99.9 31.1)", "LINESTRING (-100.2 31.2,-100.1 31.3)"],
+        "Latitude(WGS84)": [31.0, 31.2],
+        "Longitude(WGS84)": [-100.0, -100.2],
+        "summary_fsp": [0.2, 0.8],
+        "summary_pressure": [100.0, 500.0],
+    })
+
+    output_path = save_fault_results_map_artifact(
+        helper,
+        0,
+        faults_df,
+        artifact_key="fsp-summary-map",
+        title="Summary FSP Map",
+        caption="Leaflet map of summary FSP and pressure results by fault.",
+        display_order=62,
+        result_fields=["summary_fsp", "summary_pressure"],
+        color="#059669",
+        value_column="summary_fsp",
+        legend_title="Summary FSP",
+        color_scale=FSP_COLOR_SCALE,
+        value_min_default=0.0,
+        value_max_default=1.0,
+    )
+
+    manifest = json.load(open(output_path, encoding="utf-8"))
+    fault_layer = next(layer for layer in manifest["layers"] if layer["key"] == "fault-results")
+    assert fault_layer["style"]["valueColumn"] == "summary_fsp"
+    assert fault_layer["style"]["legendTitle"] == "Summary FSP"
+    assert fault_layer["style"]["colorScale"] == FSP_COLOR_SCALE
+    assert fault_layer["style"]["minValue"] == 0.0
+    assert fault_layer["style"]["maxValue"] == 1.0
+    fault_layer_df = pd.read_csv(tmp_path / fault_layer["source"]["path"])
+    assert {"summary_fsp", "summary_pressure"}.issubset(fault_layer_df.columns)
 
 
 def test_large_fault_segment_geomechanics_map_stays_single_leaflet_artifact(tmp_path):
