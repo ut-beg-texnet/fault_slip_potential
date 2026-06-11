@@ -32,6 +32,7 @@ from graphs.scientific import (
     save_input_distribution_histograms_artifact,
     save_probabilistic_hydrology_cdf_artifact,
     save_radial_curves_artifact,
+    save_summary_artifacts,
     save_uncertainty_tornado_artifact,
 )
 
@@ -304,6 +305,33 @@ class _FakeHelper:
 
 
 class TestScientificGraphArtifacts:
+    def test_summary_artifacts_leave_room_for_stacked_controls(self, tmp_path):
+        helper = _FakeHelper(tmp_path)
+        fsp_df = pd.DataFrame({
+            "ID": ["A", "A", "B", "B"],
+            "Year": [2024, 2025, 2024, 2025],
+            "FSP": [0.1, 0.2, 0.3, 0.4],
+        })
+        pressure_df = pd.DataFrame({
+            "ID": ["A", "A", "B", "B"],
+            "Year": [2024, 2025, 2024, 2025],
+            "Pressure": [10.0, 20.0, 30.0, 40.0],
+        })
+
+        save_summary_artifacts(
+            helper,
+            0,
+            fsp_df,
+            pressure_df,
+            year_of_interest=2025,
+        )
+
+        assert [artifact["key"] for artifact in helper.artifacts] == [
+            "fsp-summary-fsp-through-time",
+            "fsp-summary-pressure-through-time",
+        ]
+        assert [artifact["preferredHeight"] for artifact in helper.artifacts] == [740, 740]
+
     def test_radial_pressure_artifact_contains_well_selector_controls(self, tmp_path):
         helper = _FakeHelper(tmp_path)
         radial_df = pd.DataFrame({
