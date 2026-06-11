@@ -81,6 +81,20 @@ class TexNetWebToolLaunchHelper(object):
 
         return ret
 
+    def isStepSkipped(self, stepIndex):
+        """Returns whether the session state marks the given step as skipped."""
+        if not isinstance(stepIndex, int) or stepIndex < 0:
+            return False
+
+        try:
+            step_states = self._origArgsData["SessionState"]["StepState"]
+            if stepIndex >= len(step_states):
+                return False
+
+            return step_states[stepIndex].get("IsSkipped") is True
+        except (KeyError, TypeError, AttributeError):
+            return False
+
     def getParameterValueWithStepIndexAndParamName(self, stepIndex, paramName):
         """Returns the value of the parameter with the given name from the step at the given index"""
 

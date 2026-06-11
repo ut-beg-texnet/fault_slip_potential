@@ -35,6 +35,10 @@ from progress import report_progress
 
 STEP = 3   # 0-based index for Step 4
 STEP_GEO = 1  # Step 2
+STEP_PROB_GEO = 2  # Step 3
+SKIPPED_GEOMECHANICS_TERMINAL_MESSAGE = (
+    "Geomechanics steps have been skipped, so this is the last step of FSP for this run"
+)
 
 
 def _has_required_geomechanics_inputs(stress_inputs: dict, stress_model_type: str) -> bool:
@@ -44,6 +48,25 @@ def _has_required_geomechanics_inputs(stress_inputs: dict, stress_model_type: st
     if stress_model_type in ("gradients", "all_gradients"):
         return stress_inputs.get("min_horizontal_stress") is not None and stress_inputs.get("max_horizontal_stress") is not None
     return stress_inputs.get("aphi_value") is not None
+
+
+def _geomechanics_steps_were_skipped(helper) -> bool:
+    return helper.isStepSkipped(STEP_GEO) and helper.isStepSkipped(STEP_PROB_GEO)
+
+
+def _add_hydrology_run_message(helper, has_faults: bool, geomechanics_steps_skipped: bool) -> None:
+    if geomechanics_steps_skipped:
+        helper.addMessageWithStepIndex(
+            STEP,
+            SKIPPED_GEOMECHANICS_TERMINAL_MESSAGE,
+            1,
+        )
+    elif not has_faults:
+        helper.addMessageWithStepIndex(
+            STEP,
+            "No fault dataset was provided, so deterministic hydrology fault pressure outputs were skipped. Pressure grid and well-based outputs are still available.",
+            1,
+        )
 
 
 def _compute_well_grid_p(wd, grid_lats_flat, grid_lons_flat, grid_shape, STRho, cutoff_date):
@@ -102,6 +125,8 @@ def main():
         else:
             fault_df = pd.read_csv(faults_path, dtype={"FaultID": str})
         has_faults = not fault_df.empty
+        geomechanics_steps_skipped = _geomechanics_steps_were_skipped(helper)
+        _add_hydrology_run_message(helper, has_faults, geomechanics_steps_skipped)
 
         # ---- Load injection wells ----
         report_progress("Loading wells and faults")
@@ -123,11 +148,6 @@ def main():
             fault_lats = np.array([], dtype=float)
             fault_lons = np.array([], dtype=float)
             fault_ids = np.array([], dtype=str)
-            helper.addMessageWithStepIndex(
-                STEP,
-                "No fault dataset was provided, so deterministic hydrology fault pressure outputs were skipped. Pressure grid and well-based outputs are still available.",
-                1,
-            )
 
         if has_faults:
             report_progress("Calculating pressure at faults")
@@ -329,7 +349,7 @@ def main():
             # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_with_det_hydro_pp", faults_with_pp)
         elif not has_faults:
             pass
-        else:
+        elif not geomechanics_steps_skipped:
             helper.addMessageWithStepIndex(
                 STEP,
                 "Geomechanics steps were skipped for this run, so hydrology Mohr/slip overlays were not generated. Pressure results are still available.",
