@@ -181,12 +181,14 @@ def _uncertainty_variability_data(
         if uncertainty_value is None or uncertainty_value <= 0.0 or base_value in (None, 0.0):
             continue
 
-        percent_deviation = (uncertainty_value / abs(base_value)) * 100.0
+        # Match the legacy MATLAB chart: azimuth uses a fixed 180-degree reference.
+        reference_value = 180.0 if uncertainty_key == "max_stress_azimuth_uncertainty" else abs(base_value)
+        percent_deviation = min((uncertainty_value / reference_value) * 100.0, 100.0)
         rows.append({
             "id": next_id,
             "label": label,
-            "min": -percent_deviation,
-            "max": percent_deviation,
+            "min": round(-percent_deviation, 2),
+            "max": round(percent_deviation, 2),
         })
         next_id += 1
 
@@ -200,12 +202,20 @@ def _uncertainty_variability_data(
         if base_value in (None, 0.0):
             continue
 
-        percent_deviation = (uncertainty_value / abs(base_value)) * 100.0
+        # Match the legacy MATLAB chart: strike uses 180 degrees and dip uses 90 degrees.
+        if uncertainty_key == "strike_angles_uncertainty":
+            reference_value = 180.0
+        elif uncertainty_key == "dip_angles_uncertainty":
+            reference_value = 90.0
+        else:
+            reference_value = abs(base_value)
+
+        percent_deviation = min((uncertainty_value / reference_value) * 100.0, 100.0)
         rows.append({
             "id": next_id,
             "label": label,
-            "min": -percent_deviation,
-            "max": percent_deviation,
+            "min": round(-percent_deviation, 2),
+            "max": round(percent_deviation, 2),
         })
         next_id += 1
 

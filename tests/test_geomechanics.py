@@ -26,6 +26,7 @@ from fsp_step3 import (
     _mc_uncertainty_sensitivity_data,
     _prob_geomechanics_cdf,
     _probabilistic_geomechanics_fault_map_data,
+    _uncertainty_variability_data,
 )
 from graphs.scientific import (
     save_cdf_artifact,
@@ -229,6 +230,43 @@ class TestMCUncertaintySensitivity:
         assert fault_a["high_slip_pressure"] == 12.5
         assert fault_a["impact"] == 11.5
         assert fault_b["impact"] == 0.0
+
+
+class TestUncertaintyVariabilityData:
+    def test_matches_matlab_angle_references(self):
+        uncertainties = {
+            "initial_pore_pressure_gradient_uncertainty": 0.03,
+            "max_stress_azimuth_uncertainty": 12.0,
+            "strike_angles_uncertainty": 13.0,
+            "dip_angles_uncertainty": 6.0,
+            "friction_coefficient_uncertainty": 0.05,
+        }
+        stress_inputs = {
+            "vertical_stress": 1.0,
+            "pore_pressure": 0.45,
+            "max_stress_azimuth": 60.0,
+            "max_horizontal_stress": 0.9,
+            "min_horizontal_stress": 0.7,
+        }
+        fault_inputs = pd.DataFrame({
+            "Strike": [324.5],
+            "Dip": [66.0],
+            "FrictionCoefficient": [0.6],
+        })
+
+        variability = _uncertainty_variability_data(
+            uncertainties,
+            "gradients",
+            stress_inputs,
+            fault_inputs,
+        ).set_index("label")
+
+        # Angles use MATLAB's fixed references; other inputs use their base values.
+        assert variability.loc["SHmax Azimuth", "max"] == pytest.approx(6.67)
+        assert variability.loc["Strike of fault", "max"] == pytest.approx(7.22)
+        assert variability.loc["Dip of fault", "max"] == pytest.approx(6.67)
+        assert variability.loc["Pore Press Grad", "max"] == pytest.approx(6.67)
+        assert variability.loc["Friction Coeff", "max"] == pytest.approx(8.33)
 
 
 class TestProbabilisticGeomechanicsMapData:
