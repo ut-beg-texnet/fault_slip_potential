@@ -550,6 +550,40 @@ def test_mohr_diagram_labels_circles_by_stress_regime(tmp_path):
     assert "border-radius: 6px" in html_text
 
 
+def test_hydrology_mohr_hover_separates_applied_pressure_from_slip_pressure(tmp_path):
+    helper = DummyHelper(tmp_path)
+    arcs_df = pd.DataFrame({
+        "id": ["circle1", "circle1", "friction_line", "friction_line"],
+        "fault_id": ["fault-1", "fault-1", None, None],
+        "x": [0.0, 10.0, 0.0, 10.0],
+        "y": [0.0, 5.0, 0.0, 6.0],
+    })
+    fault_df = pd.DataFrame({
+        "id": ["fault-1"],
+        "x": [6485.0],
+        "y": [620.0],
+        "dp": [1770.0],
+        "slip_pressure": [4200.0],
+    })
+    slip_df = pd.DataFrame({"id": ["fault-1"], "dp": [1770.0], "slip_pressure": [4200.0]})
+
+    output_path = save_mohr_diagram_graph_artifact(
+        helper,
+        arcs_df,
+        slip_df,
+        fault_df,
+        step_index=3,
+        stress_regime="normal",
+    )
+
+    assert output_path is not None
+    html_text = open(output_path, encoding="utf-8").read()
+    assert "Hydrology" in html_text
+    assert "applied" in html_text
+    assert "Remaining" in html_text
+    assert "1,770.00" in html_text
+    assert "4,200.00" in html_text
+    assert "Delta PP to slip: 1,770.00" not in html_text
 def test_pressure_raster_masks_low_pressure_values():
     rgba, min_value, max_value = _pressure_grid_to_rgba(
         [[0.0, 0.5], [2.0, 100.0]],

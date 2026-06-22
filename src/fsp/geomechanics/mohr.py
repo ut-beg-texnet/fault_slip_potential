@@ -93,26 +93,34 @@ def mohr_diagram_data_to_d3_portal(sh, sH, sV, tau_faults, sigma_faults,
 
 
 def mohr_diagram_hydro_data_to_d3(sh, sH, sV, tau_faults, sigma_faults,
-                                   p0, dp_array, strikes, mu, fault_ids):
-    """Build D3 Mohr data for hydrology step (per-fault dp vector).
+                                   p0, dp_array, strikes, mu, fault_ids,
+                                   slip_pressures=None):
+    """Build D3 Mohr data for hydrology step using per-fault pressure shifts."""
+    if slip_pressures is None:
+        slip_pressures = dp_array
 
-    Returns (arcs_df, slip_df, fault_df) — arcs use dp=0 (deterministic circle).
-    """
-    arcs_df = _mohr_arcs(sh, sH, sV, p0, 0.0)
+    arc_frames = []
+    for fid, dp_val in zip(fault_ids, dp_array):
+        # Each fault has its own pressure-shifted Mohr circles.
+        fault_arcs = _mohr_arcs(sh, sH, sV, p0, float(dp_val))
+        fault_arcs["fault_id"] = str(fid)
+        arc_frames.append(fault_arcs)
+    arcs_df = pd.concat(arc_frames, ignore_index=True) if arc_frames else pd.DataFrame(columns=["id", "x", "y", "fault_id"])
     arcs_df = pd.concat([arcs_df, _friction_line(arcs_df, mu)], ignore_index=True)
 
     slip_rows = []
-    for fid, dp_val in zip(fault_ids, dp_array):
-        slip_rows.append({"id": str(fid), "dp": float(dp_val)})
+    for fid, dp_val, sp in zip(fault_ids, dp_array, slip_pressures):
+        slip_rows.append({"id": str(fid), "dp": float(dp_val), "slip_pressure": float(sp)})
     slip_df = pd.DataFrame(slip_rows)
 
     fault_rows = []
-    for fid, sigma, tau, dp_val in zip(fault_ids, sigma_faults, tau_faults, dp_array):
+    for fid, sigma, tau, dp_val, sp in zip(fault_ids, sigma_faults, tau_faults, dp_array, slip_pressures):
         fault_rows.append({
             "id": str(fid),
             "x": float(sigma),
             "y": float(tau),
             "dp": float(dp_val),
+            "slip_pressure": float(sp),
         })
     fault_df = pd.DataFrame(fault_rows)
 
@@ -120,6 +128,8 @@ def mohr_diagram_hydro_data_to_d3(sh, sH, sV, tau_faults, sigma_faults,
 
 
 def mohr_diagram_hydro_data_to_d3_portal(sh, sH, sV, tau_faults, sigma_faults,
-                                          p0, dp_array, strikes, mu, fault_ids):
+                                          p0, dp_array, strikes, mu, fault_ids,
+                                          slip_pressures=None):
     return mohr_diagram_hydro_data_to_d3(sh, sH, sV, tau_faults, sigma_faults,
-                                          p0, dp_array, strikes, mu, fault_ids)
+                                          p0, dp_array, strikes, mu, fault_ids,
+                                          slip_pressures)

@@ -311,11 +311,12 @@ def main():
             else:
                 hydro_regime = "Strike-Slip"
 
+            remaining_slip_pressures = [r["slip_pressure"] for r in hydro_res_list]
             arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(
                 float(sh), float(sH), float(sV),
                 tau_eff, sigma_eff,
                 p0, dp_faults.tolist(), strikes, friction,
-                list(fault_ids),
+                list(fault_ids), remaining_slip_pressures,
             )
             # Portal CSV not needed; graph artifact covers this output.
             # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "arcsDF_hydro", arcs_df)

@@ -251,6 +251,7 @@ def save_mohr_diagram_graph_artifact(
             return None
 
         artifact_key, title, display_order = _artifact_key_title(step_index, artifact_key, title, display_order)
+        is_hydrology_mohr = "dp" in fault_df.columns and "slip_pressure" in fault_df.columns
         color_column = "pore_pressure_slip" if "pore_pressure_slip" in fault_df.columns else None
         if color_column is None and "slip_pressure" in fault_df.columns:
             color_column = "slip_pressure"
@@ -259,27 +260,33 @@ def save_mohr_diagram_graph_artifact(
         if color_column is None:
             fault_df["delta_pressure"] = 0.0
             color_column = "delta_pressure"
+        if "dp" in fault_df.columns:
+            fault_df["dp"] = pd.to_numeric(fault_df["dp"], errors="coerce").fillna(0.0)
         fault_df[color_column] = pd.to_numeric(fault_df[color_column], errors="coerce").fillna(0.0)
+        pressure_colorbar_title = "Remaining ΔP to slip (PSI)" if is_hydrology_mohr else "Delta PP to slip (PSI)"
 
         fig = go.Figure()
         all_x = []
         all_y = []
         circle_labels = _circle_stress_labels(stress_regime)
 
-        for circle_id in [value for value in arcs_df["id"].astype(str).unique() if value != "friction_line"]:
+        circle_ids = [value for value in arcs_df["id"].astype(str).unique() if value != "friction_line"]
+        for circle_id in circle_ids:
             circle_df = arcs_df[arcs_df["id"].astype(str) == circle_id]
             circle_label = circle_labels.get(circle_id, circle_id.replace("_", " ").title())
-            all_x.extend(circle_df["x"].tolist())
-            all_y.extend(np.maximum(circle_df["y"].to_numpy(), 0.0).tolist())
-            fig.add_trace(go.Scatter(
-                x=circle_df["x"],
-                y=circle_df["y"],
-                mode="lines",
-                name=circle_label,
-                showlegend=False,
-                line={"width": 2.2, "color": "#e5e7eb"},
-                hovertemplate=f"{circle_label}<br>σ: %{{x:,.2f}} psi<br>τ: %{{y:,.2f}} psi<extra></extra>",
-            ))
+            grouped_circles = [(_, group) for _, group in circle_df.groupby("fault_id", sort=False)] if "fault_id" in circle_df.columns else [(None, circle_df)]
+            for _, circle_group in grouped_circles:
+                all_x.extend(circle_group["x"].tolist())
+                all_y.extend(np.maximum(circle_group["y"].to_numpy(), 0.0).tolist())
+                fig.add_trace(go.Scatter(
+                    x=circle_group["x"],
+                    y=circle_group["y"],
+                    mode="lines",
+                    name=circle_label,
+                    showlegend=False,
+                    line={"width": 2.2, "color": "#e5e7eb"},
+                    hovertemplate=f"{circle_label}<br>σ: %{{x:,.2f}} psi<br>τ: %{{y:,.2f}} psi<extra></extra>",
+                ))
 
         slip_line = arcs_df[arcs_df["id"].astype(str) == "friction_line"]
         if not slip_line.empty:
@@ -304,8 +311,16 @@ def save_mohr_diagram_graph_artifact(
             "Fault: " + fault_df["id"].astype(str)
             + "<br>σ: " + fault_df["x"].map("{:,.2f}".format) + " psi"
             + "<br>τ: " + fault_df["y"].map("{:,.2f}".format) + " psi"
-            + "<br>Delta PP to slip: " + fault_df[color_column].map("{:,.2f}".format) + " PSI"
-        ).tolist()
+        )
+        if is_hydrology_mohr:
+            hover_text = (
+                hover_text
+                + "<br>Hydrology ΔP applied: " + fault_df["dp"].map("{:,.2f}".format) + " PSI"
+                + "<br>Remaining ΔP to slip: " + fault_df[color_column].map("{:,.2f}".format) + " PSI"
+            )
+        else:
+            hover_text = hover_text + "<br>Delta PP to slip: " + fault_df[color_column].map("{:,.2f}".format) + " PSI"
+        hover_text = hover_text.tolist()
         all_x.extend(fault_df["x"].tolist())
         all_y.extend(fault_df["y"].tolist())
 
@@ -332,7 +347,7 @@ def save_mohr_diagram_graph_artifact(
                 "cmax": cmax,
                 "colorscale": SLIP_PRESSURE_COLOR_SCALE,
                 "showscale": True,
-                "colorbar": modern_colorbar("Delta PP to slip (PSI)", horizontal=True, dark=True),
+                "colorbar": modern_colorbar(pressure_colorbar_title, horizontal=True, dark=True),
                 "line": {"width": 1, "color": "#111827"},
             },
             hovertemplate="%{text}<extra></extra>",

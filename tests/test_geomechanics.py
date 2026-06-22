@@ -20,6 +20,7 @@ from fsp.geomechanics.slip import (
     ComputeCriticalPorePressureForFailure,
     analyze_fault,
 )
+from fsp.geomechanics.mohr import mohr_diagram_hydro_data_to_d3
 from fsp.monte_carlo.geomechanics_mc import run_geomechanics_mc
 from fsp_step3 import (
     PROBABILISTIC_GEOMECHANICS_FIELD_LABELS,
@@ -129,6 +130,35 @@ class TestComputeCriticalPorePressure:
         pp = ComputeCriticalPorePressureForFailure(sig, tau, 0.6)
         assert pp.shape == (3,)
         assert np.all(pp >= 0.0)
+
+
+class TestHydrologyMohrData:
+    def test_hydrology_mohr_carries_pressure_and_shifted_arcs(self):
+        arcs_df, slip_df, fault_df = mohr_diagram_hydro_data_to_d3(
+            3500.0,
+            4500.0,
+            5000.0,
+            tau_faults=[620.0, 700.0],
+            sigma_faults=[6485.0, 5900.0],
+            p0=2250.0,
+            dp_array=[0.0, 500.0],
+            strikes=[30.0, 45.0],
+            mu=0.6,
+            fault_ids=["A", "B"],
+            slip_pressures=[3200.0, 1800.0],
+        )
+
+        assert {"dp", "slip_pressure"}.issubset(fault_df.columns)
+        assert {"dp", "slip_pressure"}.issubset(slip_df.columns)
+        assert fault_df.loc[fault_df["id"] == "A", "dp"].iloc[0] == pytest.approx(0.0)
+        assert fault_df.loc[fault_df["id"] == "A", "slip_pressure"].iloc[0] == pytest.approx(3200.0)
+        assert fault_df.loc[fault_df["id"] == "B", "dp"].iloc[0] == pytest.approx(500.0)
+        assert fault_df.loc[fault_df["id"] == "B", "slip_pressure"].iloc[0] == pytest.approx(1800.0)
+
+        circle1 = arcs_df[arcs_df["id"] == "circle1"]
+        max_a = circle1[circle1["fault_id"] == "A"]["x"].max()
+        max_b = circle1[circle1["fault_id"] == "B"]["x"].max()
+        assert max_a - max_b == pytest.approx(500.0)
 
 
 class TestAnalyzeFault:
