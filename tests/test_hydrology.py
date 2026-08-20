@@ -12,7 +12,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from fsp.hydrology.params import calcST
-from fsp.hydrology.theis import pressureScenario_Rall, pressureScenario_Rall_scalar
+from fsp.hydrology.theis import (
+    pressureScenario_Rall,
+    pressureScenario_Rall_scalar,
+    _NUMBA_AVAILABLE,
+    theis_accumulate_all_sims,
+)
 from fsp.hydrology.pressure_field import (
     pfieldcalc_all_rates_for_distances,
     pfieldcalc_all_rates_scalar,
@@ -102,6 +107,68 @@ class TestPressureScenarioRall:
                                          evaluation_days=1000.0)
         # Evaluating at earlier date should give less or equal pressure
         assert float(dp_half[0]) <= float(dp_full[0]) + 1e-6
+
+
+@pytest.mark.skipif(not _NUMBA_AVAILABLE, reason="requires numba")
+class TestTheisAccumulateAllSims:
+    """Parity between the batched numba MC kernel and pressureScenario_Rall.
+
+    theis_accumulate_all_sims (used by fsp.monte_carlo.hydrology_mc for every
+    production MC run) evaluates all simulations for one (well, year) in a
+    single fused numba kernel call instead of one pressureScenario_Rall call
+    per simulation. It must reproduce the same pressures — both E1
+    approximation branches (A&S 5.1.53 for u<=1, A&S 5.1.56 for u>1) are
+    exercised below since only the small-u branch appears in
+    tests/benchmark_hydrology_scale.py's default geometry.
+    """
+
+    def _check(self, r, days, rng, eval_days_offset, st_ranges, n_sims=25,
+               check_rounded=True):
+        rates = rng.uniform(500.0, 5000.0, len(days))
+        eval_days = float(days[-1] + eval_days_offset)
+        h_lo, h_hi, k_lo, k_hi = st_ranges
+        STRho_list = [
+            calcST(rng.uniform(h_lo, h_hi), rng.uniform(0.02, 0.2), rng.uniform(k_lo, k_hi),
+                   rng.uniform(980, 1020), rng.uniform(9e-4, 12e-4), 9.81,
+                   rng.uniform(1e-10, 1e-9), rng.uniform(1e-10, 1e-9))
+            for _ in range(n_sims)
+        ]
+        a_s = np.array([S / (4.0 * T) for S, T, _rho in STRho_list])
+        b_s = np.array([rho * 9.81 / 6894.76 / (4.0 * np.pi * T) for S, T, rho in STRho_list])
+
+        out = np.zeros((n_sims, len(r)))
+        theis_accumulate_all_sims(r, days, rates, eval_days, a_s, b_s, out)
+
+        ref = np.array([
+            pressureScenario_Rall(rates, days, r, STRho_list[s], eval_days)
+            for s in range(n_sims)
+        ])
+
+        denom = np.where(ref != 0.0, np.abs(ref), 1.0)
+        assert np.max(np.abs(out - ref) / denom) < 1e-5
+        if check_rounded:
+            # Only meaningful at realistic reservoir-pressure magnitudes: a
+            # 1e-5 relative difference on a several-hundred-thousand-PSI
+            # value (as the large-u stress case can produce) can still cross
+            # a 2-decimal rounding boundary despite passing the rel-diff gate.
+            assert np.array_equal(np.round(out, 2), np.round(ref, 2))
+
+    def test_matches_vectorized_path_small_u(self):
+        # Distant faults / thick, permeable aquifer -> u <= 1 (A&S 5.1.53 branch)
+        r = np.array([500.0, 5000.0, 50000.0, 150000.0])
+        days = np.arange(1.0, 365.0 * 3, 15.0)
+        self._check(r, days, np.random.default_rng(42),
+                    eval_days_offset=30.0, st_ranges=(80, 200, 20, 250))
+
+    def test_matches_vectorized_path_large_u(self):
+        # Close faults / thin, low-permeability aquifer / short elapsed time
+        # -> u > 1 for every one of the 25 sampled sims (A&S 5.1.56 branch);
+        # spans both branches since some (fault, step) pairs still fall <= 1.
+        r = np.array([5.0, 20.0, 60.0])
+        days = np.array([1.0, 2.0, 3.0])
+        self._check(r, days, np.random.default_rng(7),
+                    eval_days_offset=0.5, st_ranges=(2, 10, 0.1, 2.0),
+                    check_rounded=False)
 
 
 class TestProjectedSpatialGrid:

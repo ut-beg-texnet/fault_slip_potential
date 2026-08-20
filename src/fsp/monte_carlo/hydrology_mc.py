@@ -1,6 +1,19 @@
 """
-Monte Carlo hydrology simulation — joblib-parallelised.
-Port of FSP/summary_process.jl run_mc_hydrology_time_series.
+Monte Carlo hydrology simulation.
+
+When numba is available (the expected case — see requirements.txt), all
+n_iterations simulations for a given (well, year) are evaluated in a single
+threaded numba kernel call (`theis.theis_accumulate_all_sims`); see
+`_run_all_sims_batched` below. This replaces a previous joblib/loky process
+pool over one Python-level simulation per task, which — measured on this
+codebase's own `tests/benchmark_hydrology_scale.py` geometry — spent 98% of
+its time inside `scipy.special.exp1` while achieving only ~13% parallel
+efficiency on a 22-core machine (312.8s for 750 sims). The batched kernel
+reproduces the same values (max relative difference ~1e-7, identical after
+the pipeline's own 2-decimal rounding) in ~33s for the same case.
+
+If numba is unavailable, `_single_sim_pressure` + joblib below remain the
+fallback path, preserving the original behaviour exactly.
 """
 import numpy as np
 import pandas as pd
@@ -12,11 +25,18 @@ from ..hydrology.pressure_field import (
     pfieldcalc_all_rates_for_distances,
     well_fault_distances_m,
 )
+from ..hydrology.theis import _NUMBA_AVAILABLE, theis_accumulate_all_sims
+
+if _NUMBA_AVAILABLE:
+    import numba
 
 
 def _single_sim_pressure(well_data_list, STRho, distance_matrix_m,
                           years_to_analyze):
-    """Compute total pressure per (fault, year) for one set of ST parameters."""
+    """Compute total pressure per (fault, year) for one set of ST parameters.
+
+    Fallback path used only when numba is unavailable; see module docstring.
+    """
     results = {}  # year -> array[n_faults]
     n_faults = distance_matrix_m.shape[1]
 
@@ -38,6 +58,48 @@ def _single_sim_pressure(well_data_list, STRho, distance_matrix_m,
             )
 
         results[analysis_year] = np.maximum(total, 0.0)
+    return results
+
+
+def _run_all_sims_batched(well_data_list, STRho_list, distance_matrix_m,
+                           years_to_analyze, n_jobs=-1):
+    """Compute total pressure per (fault, year, sim) for every simulation at once.
+
+    Threaded numba replacement for looping `_single_sim_pressure` per
+    simulation through joblib. Returns {year: (n_sims, n_faults) array}.
+    """
+    n_sims = len(STRho_list)
+    n_faults = distance_matrix_m.shape[1]
+
+    if n_jobs and n_jobs > 0:
+        numba.set_num_threads(min(n_jobs, numba.config.NUMBA_NUM_THREADS))
+
+    a_s = np.array([S / (4.0 * T) for S, T, _rho in STRho_list], dtype=float)
+    b_s = np.array(
+        [(rho * 9.81 / 6894.76) / (4.0 * np.pi * T) for S, T, rho in STRho_list],
+        dtype=float,
+    )
+
+    results = {}
+    for analysis_year in years_to_analyze:
+        cutoff_date = date(analysis_year - 1, 12, 31)
+        out = np.zeros((n_sims, n_faults), dtype=float)
+
+        for wi, wd in enumerate(well_data_list):
+            if wd.start_date > cutoff_date:
+                continue
+            if wd.start_year > analysis_year:
+                continue
+            if len(wd.days) == 0:
+                continue
+            eval_days = float((cutoff_date - wd.start_date).days + 1)
+
+            theis_accumulate_all_sims(
+                distance_matrix_m[wi], wd.days, wd.rates, eval_days,
+                a_s, b_s, out,
+            )
+
+        results[analysis_year] = out
     return results
 
 
@@ -99,29 +161,41 @@ def run_hydrology_mc_time_series(hydro_params, well_data_list,
         for i in range(n_sims)
     ]
 
-    # Parallel MC
-    sim_results = Parallel(n_jobs=n_jobs, backend="loky")(
-        delayed(_single_sim_pressure)(well_data_list, STRho_list[i],
-                                       distance_matrix_m, years)
-        for i in range(n_sims)
-    )
-
     n_faults = len(fault_ids)
     mode = str(result_mode or "raw").lower()
 
-    if mode == "mean":
-        # Accumulate per-year mean pressures across all simulations
-        year_pressures = {}
-        for yr in years:
-            total = np.zeros(n_faults, dtype=float)
-            count = 0
-            for sim_result in sim_results:
+    years_to_emit = years
+    if mode == "year_samples":
+        selected_year = int(sample_year) if sample_year is not None else years[-1]
+        years_to_emit = [selected_year] if selected_year in years else years[-1:]
+    years_needed = years if mode == "mean" else years_to_emit
+
+    # year -> (n_sims, n_faults) pressure array, one row per simulation
+    if _NUMBA_AVAILABLE:
+        year_matrix = _run_all_sims_batched(
+            well_data_list, STRho_list, distance_matrix_m, years_needed, n_jobs=n_jobs
+        )
+    else:
+        sim_results = Parallel(n_jobs=n_jobs, backend="loky")(
+            delayed(_single_sim_pressure)(well_data_list, STRho_list[i],
+                                           distance_matrix_m, years_needed)
+            for i in range(n_sims)
+        )
+        year_matrix = {}
+        for yr in years_needed:
+            mat = np.zeros((n_sims, n_faults), dtype=float)
+            for sim_i, sim_result in enumerate(sim_results):
                 pressures = sim_result.get(yr)
                 if pressures is not None:
-                    total += pressures
-                    count += 1
-            if count > 0:
-                year_pressures[yr] = total / float(count)
+                    mat[sim_i, :] = pressures
+            year_matrix[yr] = mat
+
+    if mode == "mean":
+        # Accumulate per-year mean pressures across all simulations
+        year_pressures = {
+            yr: year_matrix[yr].mean(axis=0)
+            for yr in years if yr in year_matrix
+        }
 
         valid_years = sorted(year_pressures.keys())
         n_years = len(valid_years)
@@ -136,19 +210,13 @@ def run_hydrology_mc_time_series(hydro_params, well_data_list,
             results_df = pd.DataFrame(columns=["ID", "Pressure", "Year"])
 
     else:
-        years_to_emit = years
-        if mode == "year_samples":
-            selected_year = int(sample_year) if sample_year is not None else years[-1]
-            years_to_emit = [selected_year] if selected_year in years else years[-1:]
-
         n_years = len(years_to_emit)
-        # Stack sim_results into a 3D array: (n_sims, n_years, n_faults)
+        # Stack into a 3D array: (n_sims, n_years, n_faults)
         pressure_3d = np.zeros((n_sims, n_years, n_faults), dtype=float)
-        for sim_i, sim_result in enumerate(sim_results):
-            for yi, yr in enumerate(years_to_emit):
-                pressures = sim_result.get(yr)
-                if pressures is not None:
-                    pressure_3d[sim_i, yi, :] = pressures
+        for yi, yr in enumerate(years_to_emit):
+            mat = year_matrix.get(yr)
+            if mat is not None:
+                pressure_3d[:, yi, :] = mat
 
         # Build column arrays via broadcasting
         results_df = pd.DataFrame({

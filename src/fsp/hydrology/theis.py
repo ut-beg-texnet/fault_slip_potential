@@ -3,18 +3,20 @@ Theis equation kernels for radial pressure front calculation.
 Port of FSP/core/bill_pfront.jl.
 
 Julia expint(u) = E₁(u) → Python scipy.special.e1(u).
-The numba-JIT scalar kernel is used in the Monte Carlo inner loop.
+When numba is available, the Monte Carlo inner loop (see
+``theis_accumulate_all_sims`` / ``_theis_accumulate_batched`` below and
+``fsp.monte_carlo.hydrology_mc``) uses a threaded numba kernel built on the
+same A&S E₁ approximation as ``_exp1_jit``; otherwise it falls back to the
+scipy-based ``pressureScenario_Rall`` below via joblib.
 """
 import numpy as np
 from scipy.special import exp1 as scipy_e1
 
 try:
-    from numba import njit as _njit
+    import numba as _numba  # noqa: F401  (presence check only)
     _NUMBA_AVAILABLE = True
 except ImportError:
     _NUMBA_AVAILABLE = False
-    def _njit(fn):
-        return fn
 
 
 _BBL_PER_DAY_TO_M3_PER_S = 1.84013e-6
@@ -104,10 +106,10 @@ def pressureScenario_Rall(bpds, days, r_meters, STRho, evaluation_days=None):
 
 
 if _NUMBA_AVAILABLE:
-    from numba import njit as _njit_real
+    from numba import njit as _njit_real, prange as _prange
     import math as _math
 
-    @_njit_real
+    @_njit_real(cache=True, fastmath=True, inline="always")
     def _exp1_jit(x: float) -> float:
         """E₁(x) using Abramowitz & Stegun approximations.
 
@@ -187,6 +189,90 @@ if _NUMBA_AVAILABLE:
         t_final_sec = (float(np.max(days)) if evaluation_days is None else float(evaluation_days)) * 86400.0
         return float(_theis_scalar_jit(bpds, days, r_m, S, T, rho, t_final_sec))
 
+    @_njit_real(parallel=True, fastmath=True, cache=True)
+    def _theis_accumulate_batched(r2, invdt, dQ_v, a_s, b_s, out):
+        """Accumulate one well's Theis contribution, for every MC sim at once.
+
+        For a fixed (well, year), the E1 argument is
+        ``u[f, s] = a_s[s] * r2[f] * invdt[j]`` — geometry (``r2``) and step
+        timing (``invdt``) are identical across all simulations, and only the
+        two scalars ``a_s = S/(4T)`` and ``b_s = rho*g/6894.76/(4*pi*T)``
+        (see ``theis_accumulate_all_sims`` below) vary per simulation. Fusing
+        the E1 evaluation and the ΔQ dot-product into one kernel — instead of
+        rebuilding the (n_faults, n_valid) matrix per simulation as
+        ``pressureScenario_Rall`` does — avoids ~750x redundant matrix
+        construction and lets ``prange`` give every core real work.
+
+        ``prange`` runs over faults (not sims) so each thread writes disjoint
+        rows of ``out`` and no reduction/locking is needed.
+
+        Parameters
+        ----------
+        r2 : (n_faults,) squared well-to-fault distances, metres^2
+        invdt : (n_valid,) 1 / elapsed seconds for each valid rate-change step
+        dQ_v : (n_valid,) rate-change volumes at those steps, m^3/s
+        a_s, b_s : (n_sims,) per-simulation S/(4T) and pressure scale factors
+        out : (n_sims, n_faults) accumulator, updated in place (+=)
+        """
+        n_faults = r2.shape[0]
+        n_valid = invdt.shape[0]
+        n_sims = a_s.shape[0]
+        for f in _prange(n_faults):
+            r2f = r2[f]
+            for s in range(n_sims):
+                a = a_s[s] * r2f
+                acc = 0.0
+                for j in range(n_valid):
+                    acc += _exp1_jit(a * invdt[j]) * dQ_v[j]
+                v = b_s[s] * acc
+                # Matches the per-well clip in pressureScenario_Rall (line 103
+                # above): a well's negative/non-finite contribution is zeroed
+                # before being summed into the fault total, not clipped after.
+                if v > 0.0 and _math.isfinite(v):
+                    out[s, f] += v
+
+    def theis_accumulate_all_sims(r_meters, days, bpds, evaluation_days, a_s, b_s, out):
+        """Accumulate one well's pressure contribution for all MC sims at once.
+
+        Drop-in replacement for calling ``pressureScenario_Rall`` once per
+        simulation with a different ``STRho``: does the shared numpy setup
+        (ΔQ, squared distances, the valid-step mask) exactly once per
+        (well, year) — mirroring ``pressureScenario_Rall`` — then hands off
+        to ``_theis_accumulate_batched`` for every simulation in one call.
+
+        Parameters
+        ----------
+        r_meters : (n_faults,) well-to-fault distances, metres
+        days, bpds : injection time series (days from start, barrels/day)
+        evaluation_days : float — days from injection start to evaluate at
+        a_s, b_s : (n_sims,) per-simulation scale factors, see
+            ``_theis_accumulate_batched``
+        out : (n_sims, n_faults) accumulator, updated in place (+=)
+        """
+        bpds = np.asarray(bpds, dtype=float)
+        days = np.asarray(days, dtype=float)
+        r_meters = np.asarray(r_meters, dtype=float)
+        if len(bpds) == 0 or len(days) == 0 or r_meters.size == 0:
+            return
+
+        t_final_sec = float(evaluation_days) * 86400.0
+
+        Q_m3s = bpds * _BBL_PER_DAY_TO_M3_PER_S
+        n = len(Q_m3s)
+        dQ = np.empty(n, dtype=float)
+        dQ[0] = Q_m3s[0]
+        dQ[1:] = Q_m3s[1:] - Q_m3s[:-1]
+
+        r2 = r_meters.ravel() ** 2
+        dt_all = t_final_sec - days * 86400.0
+        valid = (dQ != 0.0) & (dt_all > 0.0)
+        if not np.any(valid):
+            return
+
+        dQ_v = dQ[valid]
+        invdt = 1.0 / dt_all[valid]
+        _theis_accumulate_batched(r2, invdt, dQ_v, a_s, b_s, out)
+
 else:
     def pressureScenario_Rall_scalar(bpds, days, r_m, STRho, evaluation_days=None):
         """Scalar Theis (pure Python fallback when numba not available)."""
@@ -194,3 +280,5 @@ else:
             bpds, days, np.array([float(r_m)]), STRho, evaluation_days
         )
         return float(result[0])
+
+    theis_accumulate_all_sims = None
