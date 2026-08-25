@@ -6,4 +6,5 @@ from .wells import (
     preprocess_well_data,
     get_date_bounds,
     injection_rate_data_to_d3_bbl_day,
+    resolve_extrapolate_injection_rates,
 )

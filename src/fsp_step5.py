@@ -15,7 +15,13 @@ import numpy as np
 from datetime import date
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.models.hydrology import HydrologyParams
-from fsp.io.wells import load_injection_wells, preprocess_well_data, get_date_bounds
+from fsp.io.wells import (
+    load_injection_wells,
+    preprocess_well_data,
+    get_date_bounds,
+    normalize_wells_to_well_data,
+    resolve_extrapolate_injection_rates,
+)
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
 from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 from graphs.leaflet_map import save_fault_results_map_artifact
@@ -198,10 +204,15 @@ def main():
         # Pre-process wells (keep raw data for per-year cutoff)
         well_info = preprocess_well_data(inj_df, inj_type)
 
-        # Build a simple list of ProcessedWellData with max date for general use
-        from fsp.io.wells import normalize_wells_to_well_data
         cutoff_date = date(year_of_interest - 1, 12, 31)
-        well_data_list = normalize_wells_to_well_data(well_info, inj_type, cutoff_date)
+        extrapolate_injection_rates = resolve_extrapolate_injection_rates(
+            helper.getParameterValueWithStepIndexAndParamName,
+            STEP,
+        )
+        well_data_list = normalize_wells_to_well_data(
+            well_info, inj_type, cutoff_date,
+            extrapolate_injection_rates=extrapolate_injection_rates,
+        )
 
         # ---- Run MC ----
         raw_hydro_results_enabled = (

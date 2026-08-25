@@ -15,7 +15,13 @@ import pandas as pd
 from datetime import date
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.hydrology.params import calcST
-from fsp.io.wells import load_injection_wells, preprocess_well_data, normalize_wells_to_well_data, get_date_bounds
+from fsp.io.wells import (
+    load_injection_wells,
+    preprocess_well_data,
+    normalize_wells_to_well_data,
+    get_date_bounds,
+    resolve_extrapolate_injection_rates,
+)
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
 from fsp.models.hydrology import HydrologyParams
 from fsp.hydrology.pressure_field import (
@@ -241,7 +247,14 @@ def main():
 
         cutoff_date = date(year_of_interest - 1, 12, 31)
         well_info = preprocess_well_data(inj_df, inj_type)
-        well_data_list = normalize_wells_to_well_data(well_info, inj_type, cutoff_date)
+        extrapolate_injection_rates = resolve_extrapolate_injection_rates(
+            helper.getParameterValueWithStepIndexAndParamName,
+            STEP,
+        )
+        well_data_list = normalize_wells_to_well_data(
+            well_info, inj_type, cutoff_date,
+            extrapolate_injection_rates=extrapolate_injection_rates,
+        )
 
         # ---- Load fault data ----
         fault_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults")

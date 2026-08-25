@@ -11,3 +11,6 @@ examples/
 .cursor/
 
 FSP_DEMO_TCEQ.md
+
+hydrology_regression_output/
+comparison_datasets/

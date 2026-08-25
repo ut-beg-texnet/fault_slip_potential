@@ -2,11 +2,15 @@
 Injection well data loading and normalisation.
 Port of FSP/core/utilities.jl prepare_well_data_for_pressure_scenario and helpers.
 """
+import calendar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+
+# Portal true values for extrapolate_injection_rates. Missing/None/false -> False.
+_EXTRAPOLATE_TRUE_STRINGS = {"true", "yes", "1"}
 
 
 @dataclass
@@ -119,12 +123,36 @@ def preprocess_well_data(df: pd.DataFrame, data_type: str) -> dict:
     return well_info
 
 
-def normalize_wells_to_well_data(well_info: dict, data_type: str,
-                                   cutoff_date: date) -> List[ProcessedWellData]:
+def coerce_extrapolate_injection_rates(value) -> bool:
+    """True only for explicit portal true values; missing/None/false stays false."""
+    if isinstance(value, str):
+        return value.strip().lower() in _EXTRAPOLATE_TRUE_STRINGS
+    return value is True or value == 1
+
+
+def resolve_extrapolate_injection_rates(
+    get_param: Callable[[int, str], object],
+    current_step: int,
+) -> bool:
+    """Read extrapolate_injection_rates from current step, then Step 4, then Step 1."""
+    for step in (current_step, 3, 0):
+        value = get_param(step, "extrapolate_injection_rates")
+        if value is not None:
+            return coerce_extrapolate_injection_rates(value)
+    return False
+
+
+def normalize_wells_to_well_data(
+    well_info: dict,
+    data_type: str,
+    cutoff_date: date,
+    extrapolate_injection_rates: bool = False,
+) -> List[ProcessedWellData]:
     """Convert pre-processed wells to ProcessedWellData with populated days/rates arrays.
 
     Port of Julia prepare_well_data_for_pressure_scenario.
     cutoff_date = Dec 31 of (analysis_year - 1).
+    extrapolate_injection_rates continues the last monthly rate to cutoff when True.
     """
     result = []
     for well_id, wd in well_info.items():
@@ -134,8 +162,10 @@ def normalize_wells_to_well_data(well_info: dict, data_type: str,
         actual_end = min(wd.end_date, cutoff_date)
         raw = wd._raw_data
 
-        days, rates = _prepare_days_rates(raw, wd.start_date, actual_end,
-                                           data_type, cutoff_date)
+        days, rates = _prepare_days_rates(
+            raw, wd.start_date, actual_end, data_type, cutoff_date,
+            extrapolate_injection_rates,
+        )
         if len(days) == 0:
             continue
 
@@ -153,9 +183,14 @@ def normalize_wells_to_well_data(well_info: dict, data_type: str,
     return result
 
 
-def _prepare_days_rates(well_data: pd.DataFrame, start_date: date,
-                         end_date: date, data_type: str,
-                         cutoff_date: date) -> Tuple[np.ndarray, np.ndarray]:
+def _prepare_days_rates(
+    well_data: pd.DataFrame,
+    start_date: date,
+    end_date: date,
+    data_type: str,
+    cutoff_date: date,
+    extrapolate_injection_rates: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Build (days, rates) arrays from filtered well data.
 
     days are counted from start_date (day 1 = first day).
@@ -170,102 +205,209 @@ def _prepare_days_rates(well_data: pd.DataFrame, start_date: date,
         return days, rates
 
     elif data_type == "monthly_fsp":
-        return _monthly_fsp_days_rates(well_data, start_date, end_date)
+        return _monthly_fsp_days_rates(
+            well_data, start_date, cutoff_date, extrapolate_injection_rates,
+        )
 
     elif data_type == "injection_tool_data":
-        return _injection_tool_days_rates(well_data, start_date, end_date)
+        return _injection_tool_days_rates(
+            well_data, start_date, cutoff_date, extrapolate_injection_rates,
+        )
 
     return np.array([]), np.array([])
 
 
-def _monthly_fsp_days_rates(well_data: pd.DataFrame, start_date: date,
-                              end_date: date) -> Tuple[np.ndarray, np.ndarray]:
-    """Convert monthly injection volumes to step-change days/rates arrays."""
-    rate_col = None
-    for c in ["InjectionRate(bbl/month)", "Injection Rate (bbl/month)", "MonthlyInjectionRate"]:
-        if c in well_data.columns:
-            rate_col = c
-            break
-    if rate_col is None:
+def _next_month_start(value: date) -> date:
+    if value.month == 12:
+        return date(value.year + 1, 1, 1)
+    return date(value.year, value.month + 1, 1)
+
+
+def _monthly_rate_column(well_data: pd.DataFrame) -> Optional[str]:
+    for col in ["InjectionRate(bbl/month)", "Injection Rate (bbl/month)", "MonthlyInjectionRate"]:
+        if col in well_data.columns:
+            return col
+    return None
+
+
+def _monthly_volumes_from_rows(well_data: pd.DataFrame, rate_col: str) -> Dict[Tuple[int, int], float]:
+    """Last listed volume wins for a repeated (year, month)."""
+    volume_by_month: Dict[Tuple[int, int], float] = {}
+    ordered = well_data.sort_values(["Year", "Month"], kind="mergesort")
+    for _, row in ordered.iterrows():
+        try:
+            year = int(row["Year"])
+            month = int(row["Month"])
+            volume = float(row[rate_col])
+        except (ValueError, KeyError, TypeError):
+            continue
+        volume_by_month[(year, month)] = volume
+    return volume_by_month
+
+
+def _monthly_step_series(
+    volume_by_month: Dict[Tuple[int, int], float],
+    start_date: date,
+    cutoff_date: date,
+    extrapolate_injection_rates: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """MATLAB SpreadsheetStrings2WellData mapped onto Python start-of-interval days.
+
+    Gap months are rate 0. Consecutive listed months with the same volume keep the
+    first month's bbl/day. When extrapolate_injection_rates is False, a trailing 0
+    starts at the month after the last data month.
+    """
+    included = {
+        key: volume
+        for key, volume in volume_by_month.items()
+        if date(key[0], key[1], 1) <= cutoff_date
+    }
+    if not included:
         return np.array([]), np.array([])
 
-    days_list = []
-    rates_list = []
+    last_data_key = max(included)
+    last_data_month = date(last_data_key[0], last_data_key[1], 1)
+    current = date(min(included)[0], min(included)[1], 1)
 
-    for _, row in well_data.iterrows():
-        try:
-            yr = int(row["Year"])
-            mo = int(row["Month"])
-            monthly_vol = float(row[rate_col])
-        except (ValueError, KeyError):
-            continue
+    days_list: List[float] = []
+    rates_list: List[float] = []
+    previous_rate: Optional[float] = None
+    previous_volume: Optional[float] = None
+    previous_had_data = False
 
-        month_start = date(yr, mo, 1)
-        if month_start > end_date:
-            continue
+    def emit(step_date: date, rate: float) -> None:
+        nonlocal previous_rate
+        if step_date > cutoff_date:
+            return
+        step_date = max(step_date, start_date)
+        if previous_rate is None or rate != previous_rate:
+            days_list.append(float((step_date - start_date).days + 1))
+            rates_list.append(rate)
+            previous_rate = rate
 
-        days_in_month = _last_day_of_month(yr, mo)
-        daily_rate = monthly_vol / days_in_month
+    while current <= last_data_month:
+        key = (current.year, current.month)
+        if key in included:
+            volume = float(included[key])
+            rate = volume / _last_day_of_month(current.year, current.month)
+            if not (previous_had_data and volume == previous_volume):
+                emit(current, rate)
+            previous_had_data = True
+            previous_volume = volume
+        else:
+            emit(current, 0.0)
+            previous_had_data = False
+            previous_volume = None
+        current = _next_month_start(current)
 
-        day_offset = float((month_start - start_date).days + 1)
-        days_list.append(day_offset)
-        rates_list.append(daily_rate)
+    if not extrapolate_injection_rates:
+        shut_in = _next_month_start(last_data_month)
+        if shut_in <= cutoff_date:
+            emit(shut_in, 0.0)
 
     if not days_list:
         return np.array([]), np.array([])
-
-    # Sort by day
-    order = np.argsort(days_list)
-    return np.array(days_list)[order], np.array(rates_list)[order]
+    return np.asarray(days_list, dtype=float), np.asarray(rates_list, dtype=float)
 
 
-def _injection_tool_days_rates(well_data: pd.DataFrame, start_date: date,
-                                 end_date: date) -> Tuple[np.ndarray, np.ndarray]:
+def _monthly_fsp_days_rates(
+    well_data: pd.DataFrame,
+    start_date: date,
+    cutoff_date: date,
+    extrapolate_injection_rates: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Convert monthly injection volumes to MATLAB-style step-change days/rates."""
+    rate_col = _monthly_rate_column(well_data)
+    if rate_col is None:
+        return np.array([]), np.array([])
+    volume_by_month = _monthly_volumes_from_rows(well_data, rate_col)
+    return _monthly_step_series(
+        volume_by_month, start_date, cutoff_date, extrapolate_injection_rates,
+    )
+
+
+def _injection_tool_volume_column(well_data: pd.DataFrame) -> Optional[str]:
+    for col in ["Monthly Injection Volume (BBLs)", "Annual Injection Volume (BBLs)",
+                "Injection Volume (BBL)", "BPD"]:
+        if col in well_data.columns:
+            return col
+    return None
+
+
+def _injection_tool_days_rates(
+    well_data: pd.DataFrame,
+    start_date: date,
+    cutoff_date: date,
+    extrapolate_injection_rates: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Convert injection tool data to days/rates arrays."""
     dates = _parse_dates_column(well_data["Date of Injection"])
-
-    # Determine rate column
-    rate_col = None
-    for c in ["Monthly Injection Volume (BBLs)", "Annual Injection Volume (BBLs)",
-              "Injection Volume (BBL)", "BPD"]:
-        if c in well_data.columns:
-            rate_col = c
-            break
+    rate_col = _injection_tool_volume_column(well_data)
     if rate_col is None:
         return np.array([]), np.array([])
 
+    volumes = pd.to_numeric(well_data[rate_col], errors="coerce")
     is_monthly = "Monthly" in rate_col
+
+    if is_monthly:
+        dated_volumes = sorted(
+            (
+                (injection_date, float(volume))
+                for injection_date, volume in zip(dates, volumes)
+                if pd.notna(volume) and date(injection_date.year, injection_date.month, 1) <= cutoff_date
+            ),
+            key=lambda item: item[0],
+        )
+        volume_by_month: Dict[Tuple[int, int], float] = {}
+        for injection_date, volume in dated_volumes:
+            volume_by_month[(injection_date.year, injection_date.month)] = volume
+        return _monthly_step_series(
+            volume_by_month, start_date, cutoff_date, extrapolate_injection_rates,
+        )
 
     days_list = []
     rates_list = []
-
-    for (d, row) in zip(dates, well_data.itertuples()):
-        if d > end_date:
+    for injection_date, volume in zip(dates, volumes):
+        if pd.isna(volume) or injection_date > cutoff_date:
             continue
-        try:
-            vol = float(getattr(row, rate_col.replace(" ", "_").replace("(", "").replace(")", "")))
-        except AttributeError:
-            try:
-                idx = well_data.columns.get_loc(rate_col)
-                vol = float(row[idx + 1])  # +1 because itertuples includes index at [0]
-            except Exception:
-                continue
-
-        if is_monthly:
-            days_in_month = _last_day_of_month(d.year, d.month)
-            rate = vol / days_in_month
-        else:
-            rate = vol / 365.0
-
-        day_offset = float((d - start_date).days + 1)
-        days_list.append(day_offset)
-        rates_list.append(rate)
+        days_list.append(float((injection_date - start_date).days + 1))
+        rates_list.append(float(volume) / 365.0)
 
     if not days_list:
         return np.array([]), np.array([])
-
     order = np.argsort(days_list)
     return np.array(days_list)[order], np.array(rates_list)[order]
+
+
+def _d3_rate_row(well_id: str, step_date: date, rate: float) -> dict:
+    return {
+        "WellID": well_id,
+        "date": step_date.strftime("%Y-%m-%d"),
+        "rate_bbl_day": rate,
+        "InjectionRate(bbl/day)": rate,
+        "Timestamp": float(datetime(step_date.year, step_date.month, step_date.day).timestamp() * 1000.0),
+    }
+
+
+def _d3_rows_from_monthly_volumes(
+    well_id: str,
+    volume_by_month: Dict[Tuple[int, int], float],
+) -> List[dict]:
+    """Graph series: gap zeros between first and last data month; no tail past last data."""
+    if not volume_by_month:
+        return []
+    last_key = max(volume_by_month)
+    last_day = date(last_key[0], last_key[1], _last_day_of_month(last_key[0], last_key[1]))
+    first_key = min(volume_by_month)
+    start_date = date(first_key[0], first_key[1], 1)
+    days, rates = _monthly_step_series(
+        volume_by_month, start_date, last_day, extrapolate_injection_rates=True,
+    )
+    rows = []
+    for day_offset, rate in zip(days, rates):
+        step_date = start_date + timedelta(days=int(day_offset) - 1)
+        rows.append(_d3_rate_row(well_id, step_date, rate))
+    return rows
 
 
 def injection_rate_data_to_d3_bbl_day(df: pd.DataFrame, data_type: str) -> pd.DataFrame:
@@ -273,71 +415,57 @@ def injection_rate_data_to_d3_bbl_day(df: pd.DataFrame, data_type: str) -> pd.Da
 
     Port of Julia injection_rate_data_to_d3_bbl_day.
     Returns both legacy Python columns and Julia-compatible graph columns.
+    Monthly series use the MATLAB reconstruction (gap zeros, same-volume merge).
     """
     rows = []
 
     if data_type == "annual_fsp":
         for _, row in df.iterrows():
-            wid = str(row["WellID"])
+            well_id = str(row["WellID"])
             rate = float(row["InjectionRate(bbl/day)"])
-            sy = int(row["StartYear"])
-            ey = int(row["EndYear"])
-            for yr in range(sy, ey + 1):
-                d = date(yr, 1, 1)
-                rows.append({
-                    "WellID": wid,
-                    "date": d.strftime("%Y-%m-%d"),
-                    "rate_bbl_day": rate,
-                    "InjectionRate(bbl/day)": rate,
-                    "Timestamp": float(datetime(d.year, d.month, d.day).timestamp() * 1000.0),
-                })
+            start_year = int(row["StartYear"])
+            end_year = int(row["EndYear"])
+            for year in range(start_year, end_year):
+                rows.append(_d3_rate_row(well_id, date(year, 1, 1), rate))
+            rows.append(_d3_rate_row(well_id, date(end_year, 1, 1), 0.0))
 
     elif data_type == "monthly_fsp":
-        rate_col = None
-        for c in ["InjectionRate(bbl/month)", "Injection Rate (bbl/month)"]:
-            if c in df.columns:
-                rate_col = c
-                break
+        rate_col = _monthly_rate_column(df)
         if rate_col is None:
             return pd.DataFrame(rows)
-
-        for _, row in df.iterrows():
-            wid = str(row["WellID"])
-            yr = int(row["Year"])
-            mo = int(row["Month"])
-            vol = float(row[rate_col])
-            days_in_month = _last_day_of_month(yr, mo)
-            daily_rate = vol / days_in_month
-            d = date(yr, mo, 1)
-            rows.append({
-                "WellID": wid,
-                "date": d.strftime("%Y-%m-%d"),
-                "rate_bbl_day": daily_rate,
-                "InjectionRate(bbl/day)": daily_rate,
-                "Timestamp": float(datetime(d.year, d.month, d.day).timestamp() * 1000.0),
-            })
+        for well_id, group in df.groupby(df["WellID"].astype(str), sort=False):
+            volume_by_month = _monthly_volumes_from_rows(group, rate_col)
+            rows.extend(_d3_rows_from_monthly_volumes(str(well_id), volume_by_month))
 
     elif data_type == "injection_tool_data":
-        for _, row in df.iterrows():
-            wid = str(row.get("API Number", row.get("UWI", "Unknown")))
-            d_str = str(row.get("Date of Injection", ""))
-            try:
-                d = _parse_single_date(d_str)
-            except Exception:
-                continue
-            for c in ["Monthly Injection Volume (BBLs)", "Annual Injection Volume (BBLs)"]:
-                if c in df.columns:
-                    vol = float(row[c])
-                    is_monthly = "Monthly" in c
-                    dpm = _last_day_of_month(d.year, d.month) if is_monthly else 365
-                    rows.append({
-                        "WellID": wid,
-                        "date": d.strftime("%Y-%m-%d"),
-                        "rate_bbl_day": vol / dpm,
-                        "InjectionRate(bbl/day)": vol / dpm,
-                        "Timestamp": float(datetime(d.year, d.month, d.day).timestamp() * 1000.0),
-                    })
-                    break
+        well_id_col = "API Number" if "API Number" in df.columns else "UWI"
+        rate_col = _injection_tool_volume_column(df)
+        if rate_col is None:
+            return pd.DataFrame(rows)
+        is_monthly = "Monthly" in rate_col
+        for well_id, group in df.groupby(df[well_id_col].astype(str), sort=False):
+            if is_monthly:
+                dates = _parse_dates_column(group["Date of Injection"])
+                volumes = pd.to_numeric(group[rate_col], errors="coerce")
+                dated_volumes = sorted(
+                    (
+                        (injection_date, float(volume))
+                        for injection_date, volume in zip(dates, volumes)
+                        if pd.notna(volume)
+                    ),
+                    key=lambda item: item[0],
+                )
+                volume_by_month: Dict[Tuple[int, int], float] = {}
+                for injection_date, volume in dated_volumes:
+                    volume_by_month[(injection_date.year, injection_date.month)] = volume
+                rows.extend(_d3_rows_from_monthly_volumes(str(well_id), volume_by_month))
+            else:
+                dates = _parse_dates_column(group["Date of Injection"])
+                volumes = pd.to_numeric(group[rate_col], errors="coerce")
+                for injection_date, volume in zip(dates, volumes):
+                    if pd.isna(volume):
+                        continue
+                    rows.append(_d3_rate_row(str(well_id), injection_date, float(volume) / 365.0))
 
     return pd.DataFrame(rows)
 
@@ -360,13 +488,11 @@ def _parse_single_date(s: str) -> date:
     """Try common date formats."""
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%Y/%m/%d"):
         try:
-            import datetime
-            return datetime.datetime.strptime(s.strip(), fmt).date()
+            return datetime.strptime(s.strip(), fmt).date()
         except ValueError:
             pass
     raise ValueError(f"Cannot parse date: {s!r}")
 
 
 def _last_day_of_month(year: int, month: int) -> int:
-    import calendar
     return calendar.monthrange(year, month)[1]

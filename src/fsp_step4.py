@@ -23,7 +23,8 @@ from fsp.hydrology.pressure_field import (
 from fsp.hydrology.theis import pressureScenario_Rall
 from fsp.io.coords import create_projected_spatial_grid, haversine_distance, reformat_pressure_grid_to_heatmap
 from fsp.io.wells import (
-    load_injection_wells, preprocess_well_data, normalize_wells_to_well_data, get_date_bounds
+    load_injection_wells, preprocess_well_data, normalize_wells_to_well_data, get_date_bounds,
+    resolve_extrapolate_injection_rates,
 )
 from fsp.geomechanics.stress import calculate_absolute_stresses
 from fsp.geomechanics.slip import analyze_fault_hydro
@@ -137,7 +138,14 @@ def main():
         cutoff_date = date(year_of_interest - 1, 12, 31)
 
         well_info = preprocess_well_data(inj_df, inj_type)
-        well_data_list = normalize_wells_to_well_data(well_info, inj_type, cutoff_date)
+        extrapolate_injection_rates = resolve_extrapolate_injection_rates(
+            helper.getParameterValueWithStepIndexAndParamName,
+            STEP,
+        )
+        well_data_list = normalize_wells_to_well_data(
+            well_info, inj_type, cutoff_date,
+            extrapolate_injection_rates=extrapolate_injection_rates,
+        )
 
         # ---- Compute pressure at each fault ----
         if has_faults:
