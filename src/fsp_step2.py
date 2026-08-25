@@ -33,15 +33,27 @@ STEP = 1   # 0-based index for Step 2
 
 
 def _get_stress_model_type(helper):
-    """Determine stress model type from portal parameters."""
-    mode = helper.getParameterValueWithStepIndexAndParamName(STEP, "stress_field_mode")
+    """Determine the specific stress model variant from portal parameters."""
+    mode = helper.getParameterValueWithStepIndexAndParamName(
+        STEP, "stress_field_mode"
+    )
+    shmin = helper.getParameterValueWithStepIndexAndParamName(
+        STEP, "min_horizontal_stress"
+    )
+    has_shmin = shmin is not None and str(shmin).strip() != ""
+
+    # The portal uses one A-Phi selection; distinguish its two variants here.
+    if mode == "aphi_model":
+        return "aphi_min" if has_shmin else "aphi_no_min"
+
     if mode:
         return str(mode)
-    # Legacy fallback
+
+    # Legacy fallback for runs without Stress Field Mode.
     aphi = helper.getParameterValueWithStepIndexAndParamName(STEP, "aphi_value")
-    sh = helper.getParameterValueWithStepIndexAndParamName(STEP, "min_horizontal_stress")
     if aphi is not None:
-        return "aphi_min" if sh is not None else "aphi_no_min"
+        return "aphi_min" if has_shmin else "aphi_no_min"
+
     return "gradients"
 
 
