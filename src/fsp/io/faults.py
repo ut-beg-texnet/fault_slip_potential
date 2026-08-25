@@ -47,7 +47,6 @@ def generate_randomized_faults(num: int,
         "Strike": strikes,
         "Dip": dips,
         "LengthKm": np.full(num, length_km),
-        "FrictionCoefficient": np.full(num, np.nan),
     })
 
 

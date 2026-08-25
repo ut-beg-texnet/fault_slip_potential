@@ -129,6 +129,10 @@ def _numeric(value):
 
 
 def _stress_parameter_mapping(stress_model_type: str, stress_inputs: dict):
+    """Portal stress (and global friction coefficient) parameters used by variability and tornado charts."""
+    friction = {
+        "friction_coefficient_uncertainty": ("Friction Coeff", "friction_coefficient"),
+    }
     if stress_model_type in ("gradients", "all_gradients"):
         return {
             "vertical_stress_gradient_uncertainty": ("Vert Stress Grad", "vertical_stress"),
@@ -136,6 +140,7 @@ def _stress_parameter_mapping(stress_model_type: str, stress_inputs: dict):
             "max_stress_azimuth_uncertainty": ("SHmax Azimuth", "max_stress_azimuth"),
             "max_horizontal_stress_uncertainty": ("SHmax Gradient", "max_horizontal_stress"),
             "min_horizontal_stress_uncertainty": ("SHmin Gradient", "min_horizontal_stress"),
+            **friction,
         }
     if stress_model_type == "aphi_min" or (
         stress_model_type == "aphi_model" and stress_inputs.get("min_horizontal_stress") is not None
@@ -146,12 +151,14 @@ def _stress_parameter_mapping(stress_model_type: str, stress_inputs: dict):
             "max_stress_azimuth_uncertainty": ("SHmax Azimuth", "max_stress_azimuth"),
             "aphi_value_uncertainty": ("APhi Value", "aphi_value"),
             "min_horizontal_stress_uncertainty": ("SHmin Gradient", "min_horizontal_stress"),
+            **friction,
         }
     return {
         "vertical_stress_gradient_uncertainty": ("Vert Stress Grad", "vertical_stress"),
         "initial_pore_pressure_gradient_uncertainty": ("Pore Press Grad", "pore_pressure"),
         "max_stress_azimuth_uncertainty": ("SHmax Azimuth", "max_stress_azimuth"),
         "aphi_value_uncertainty": ("APhi Value", "aphi_value"),
+        **friction,
     }
 
 
@@ -159,7 +166,6 @@ def _fault_parameter_mapping():
     return {
         "strike_angles_uncertainty": ("Strike of fault", "Strike"),
         "dip_angles_uncertainty": ("Dip of fault", "Dip"),
-        "friction_coefficient_uncertainty": ("Friction Coeff", "FrictionCoefficient"),
     }
 
 
@@ -239,28 +245,7 @@ def _bounded_parameter_value(parameter_key: str, base_value: float, delta: float
         return updated_value % 360.0
     if parameter_key == "Dip":
         return float(np.clip(updated_value, 0.0, 90.0))
-    if parameter_key == "FrictionCoefficient":
-        return max(updated_value, 0.0)
     return max(updated_value, 0.0)
-
-
-def _fault_slip_pressure(stress_inputs: dict, fault_row: pd.Series, stress_model_type: str) -> float:
-    friction = _numeric(fault_row.get("FrictionCoefficient"))
-    if friction is None:
-        friction = _numeric(stress_inputs.get("friction_coefficient"))
-    if friction is None:
-        raise ValueError("Missing friction coefficient for deterministic fault sensitivity calculation.")
-
-    stress_state_obj, p0_abs = calculate_absolute_stresses(stress_inputs, friction, stress_model_type)
-    sig_normal, tau_normal, *_ = calculate_fault_effective_stresses(
-        _numeric(fault_row["Strike"]),
-        _numeric(fault_row["Dip"]),
-        stress_state_obj,
-        p0_abs,
-        0.0,
-    )
-    slip_pressure = ComputeCriticalPorePressureForFailure(sig_normal, tau_normal, friction, p0_abs)
-    return float(np.asarray(slip_pressure).item())
 
 
 _TORNADO_METHOD = "+/- uncertainty one-at-a-time deterministic"
@@ -279,48 +264,20 @@ _TORNADO_COLUMNS = [
 ]
 
 
-def _resolve_fault_frictions(fault_inputs: pd.DataFrame, stress_inputs: dict) -> np.ndarray:
-    """Per-fault friction array, mirroring _fault_slip_pressure's resolution order.
-
-    Uses the per-fault ``FrictionCoefficient`` where finite, otherwise the global
-    ``friction_coefficient`` from stress_inputs. Raises if neither is available
-    (same error as the scalar path).
-    """
-    n = len(fault_inputs)
-    global_friction = _numeric(stress_inputs.get("friction_coefficient"))
-    if "FrictionCoefficient" in fault_inputs.columns:
-        per_fault = pd.to_numeric(fault_inputs["FrictionCoefficient"], errors="coerce").to_numpy(dtype=float)
-    else:
-        per_fault = np.full(n, np.nan)
-    fallback = global_friction if global_friction is not None else np.nan
-    frictions = np.where(np.isfinite(per_fault), per_fault, fallback)
-    if not np.all(np.isfinite(frictions)):
-        raise ValueError("Missing friction coefficient for deterministic fault sensitivity calculation.")
-    return frictions
-
-
-def _vectorized_fault_slip_pressures(stress_inputs: dict, strikes, dips, frictions,
+def _vectorized_fault_slip_pressures(stress_inputs: dict, strikes, dips,
                                      stress_model_type: str) -> np.ndarray:
-    """Vectorized equivalent of _fault_slip_pressure over arrays of faults.
-
-    The absolute stress state depends only on (stress_inputs, friction, model), so we
-    group faults by their friction value and compute the stress state once per group —
-    eliminating the per-fault recomputation in the original scalar loop. Each fault's
-    result is identical to _fault_slip_pressure (same functions, same inputs).
-    """
+    """Slip pressure for all faults using the global portal friction coefficient."""
+    mu = _numeric(stress_inputs.get("friction_coefficient"))
+    if mu is None:
+        raise ValueError("Missing friction coefficient for deterministic fault sensitivity calculation.")
     strikes = np.asarray(strikes, dtype=float)
     dips = np.asarray(dips, dtype=float)
-    frictions = np.asarray(frictions, dtype=float)
-    out = np.empty(strikes.shape[0], dtype=float)
-    for mu in np.unique(frictions):
-        mask = frictions == mu
-        stress_state_obj, p0_abs = calculate_absolute_stresses(stress_inputs, float(mu), stress_model_type)
-        sig_normal, tau_normal, *_ = calculate_fault_effective_stresses(
-            strikes[mask], dips[mask], stress_state_obj, p0_abs, 0.0,
-        )
-        slip = ComputeCriticalPorePressureForFailure(sig_normal, tau_normal, float(mu), p0_abs)
-        out[mask] = np.asarray(slip, dtype=float)
-    return out
+    stress_state_obj, p0_abs = calculate_absolute_stresses(stress_inputs, mu, stress_model_type)
+    sig_normal, tau_normal, *_ = calculate_fault_effective_stresses(
+        strikes, dips, stress_state_obj, p0_abs, 0.0,
+    )
+    slip = ComputeCriticalPorePressureForFailure(sig_normal, tau_normal, mu, p0_abs)
+    return np.asarray(slip, dtype=float)
 
 
 def _bounded_fault_array(parameter_key: str, base_array: np.ndarray, delta: float) -> np.ndarray:
@@ -330,7 +287,7 @@ def _bounded_fault_array(parameter_key: str, base_array: np.ndarray, delta: floa
         return np.mod(updated, 360.0)
     if parameter_key == "Dip":
         return np.clip(updated, 0.0, 90.0)
-    return np.maximum(updated, 0.0)  # FrictionCoefficient (and any other)
+    return np.maximum(updated, 0.0)
 
 
 def _fault_sensitivity_tornado_data(
@@ -349,13 +306,12 @@ def _fault_sensitivity_tornado_data(
     fault_ids = fault_inputs["FaultID"].astype(str).to_numpy()
     strikes = pd.to_numeric(fault_inputs["Strike"], errors="coerce").to_numpy(dtype=float)
     dips = pd.to_numeric(fault_inputs["Dip"], errors="coerce").to_numpy(dtype=float)
-    frictions = _resolve_fault_frictions(fault_inputs, stress_inputs)
 
-    # Baseline slip pressure per fault (stress state cached per unique friction).
-    baseline = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, frictions, stress_model_type)
+    # Baseline slip pressure per fault (one stress state; global portal friction).
+    baseline = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, stress_model_type)
 
     # --- Stress-parameter perturbations: one perturbed stress field per param/direction,
-    #     evaluated vectorized across all faults. ---
+    #     evaluated vectorized across all faults. Friction is a global stress input. ---
     stress_param_arrays = {}  # uncertainty_key -> (label, low_arr, high_arr)
     for uncertainty_key, (label, stress_key) in stress_parameter_mapping.items():
         uncertainty_value = _numeric(uncertainties.get(uncertainty_key))
@@ -368,27 +324,18 @@ def _fault_sensitivity_tornado_data(
         low_inputs[stress_key] = _bounded_parameter_value(stress_key, base_value, -uncertainty_value)
         high_inputs[stress_key] = _bounded_parameter_value(stress_key, base_value, uncertainty_value)
 
-        low_arr = _vectorized_fault_slip_pressures(low_inputs, strikes, dips, frictions, stress_model_type)
-        high_arr = _vectorized_fault_slip_pressures(high_inputs, strikes, dips, frictions, stress_model_type)
+        low_arr = _vectorized_fault_slip_pressures(low_inputs, strikes, dips, stress_model_type)
+        high_arr = _vectorized_fault_slip_pressures(high_inputs, strikes, dips, stress_model_type)
         stress_param_arrays[uncertainty_key] = (label, low_arr, high_arr)
 
-    # --- Fault-geometry perturbations: perturb the relevant fault array, base stress field. ---
+    # --- Fault-geometry perturbations: perturb strike/dip, keep base stress field. ---
     fault_param_arrays = {}  # uncertainty_key -> (label, low_arr, high_arr, valid_mask)
     for uncertainty_key, (label, fault_key) in fault_parameter_mapping.items():
         uncertainty_value = _numeric(uncertainties.get(uncertainty_key))
         if uncertainty_value is None or uncertainty_value <= 0.0:
             continue
 
-        # Raw per-fault base values (no global fallback — mirrors fault_row.get(fault_key)).
-        if fault_key == "Strike":
-            raw_base = strikes
-        elif fault_key == "Dip":
-            raw_base = dips
-        elif fault_key in fault_inputs.columns:
-            raw_base = pd.to_numeric(fault_inputs[fault_key], errors="coerce").to_numpy(dtype=float)
-        else:
-            continue  # base_value is None for every fault -> param skipped entirely
-
+        raw_base = strikes if fault_key == "Strike" else dips
         valid_mask = np.isfinite(raw_base)
         if not np.any(valid_mask):
             continue
@@ -397,18 +344,11 @@ def _fault_sensitivity_tornado_data(
         high_base = _bounded_fault_array(fault_key, raw_base, uncertainty_value)
 
         if fault_key == "Strike":
-            low_arr = _vectorized_fault_slip_pressures(stress_inputs, low_base, dips, frictions, stress_model_type)
-            high_arr = _vectorized_fault_slip_pressures(stress_inputs, high_base, dips, frictions, stress_model_type)
-        elif fault_key == "Dip":
-            low_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, low_base, frictions, stress_model_type)
-            high_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, high_base, frictions, stress_model_type)
-        else:  # FrictionCoefficient — perturbs both the stress state and the slip mu.
-            # Invalid faults are excluded at assembly; fill them with a finite value so the
-            # grouped stress-state computation never sees NaN.
-            low_friction = np.where(valid_mask, low_base, frictions)
-            high_friction = np.where(valid_mask, high_base, frictions)
-            low_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, low_friction, stress_model_type)
-            high_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, dips, high_friction, stress_model_type)
+            low_arr = _vectorized_fault_slip_pressures(stress_inputs, low_base, dips, stress_model_type)
+            high_arr = _vectorized_fault_slip_pressures(stress_inputs, high_base, dips, stress_model_type)
+        else:
+            low_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, low_base, stress_model_type)
+            high_arr = _vectorized_fault_slip_pressures(stress_inputs, strikes, high_base, stress_model_type)
 
         fault_param_arrays[uncertainty_key] = (label, low_arr, high_arr, valid_mask)
 
@@ -681,12 +621,7 @@ def main():
         fault_inputs = pd.read_csv(faults_path, dtype={"FaultID": str})
         if fault_inputs.empty:
             raise ValueError("A fault dataset is required to run probabilistic geomechanics. Skip this step for injection-pressure-only runs.")
-
-        # Populate FrictionCoefficient column
-        if "FrictionCoefficient" not in fault_inputs.columns:
-            fault_inputs["FrictionCoefficient"] = friction
-        else:
-            fault_inputs["FrictionCoefficient"] = friction
+        fault_inputs = fault_inputs.drop(columns=["FrictionCoefficient"], errors="ignore")
 
         n_sims = int(helper.getParameterValueWithStepIndexAndParamName(STEP, "mc_iterations") or 1000)
 

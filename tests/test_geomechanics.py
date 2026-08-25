@@ -277,11 +277,11 @@ class TestUncertaintyVariabilityData:
             "max_stress_azimuth": 60.0,
             "max_horizontal_stress": 0.9,
             "min_horizontal_stress": 0.7,
+            "friction_coefficient": 0.58,
         }
         fault_inputs = pd.DataFrame({
             "Strike": [324.5],
             "Dip": [66.0],
-            "FrictionCoefficient": [0.6],
         })
 
         variability = _uncertainty_variability_data(

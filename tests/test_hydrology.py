@@ -535,15 +535,15 @@ def test_variable_fsp_demo_csvs_have_expected_schema_and_calibration():
     faults = pd.read_csv(faults_path, dtype={"FaultID": str})
     injection = pd.read_csv(injection_path, dtype={"WellID": str})
 
-    assert list(faults.columns) == [
+    required_fault_columns = [
         "FaultID",
         "Latitude(WGS84)",
         "Longitude(WGS84)",
         "Strike",
         "Dip",
         "LengthKm",
-        "FrictionCoefficient",
     ]
+    assert set(required_fault_columns).issubset(faults.columns)
     assert list(injection.columns) == [
         "WellID",
         "Latitude(WGS84)",

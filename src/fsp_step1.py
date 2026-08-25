@@ -119,6 +119,7 @@ def main():
             if col not in faults_df.columns:
                 faults_df[col] = None
 
+
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_model_inputs_output", faults_df)
 
         # ---- Injection wells ----
