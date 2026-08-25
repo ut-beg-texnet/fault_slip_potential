@@ -250,6 +250,7 @@ def main():
         extrapolate_injection_rates = resolve_extrapolate_injection_rates(
             helper.getParameterValueWithStepIndexAndParamName,
             STEP,
+            inj_type,
         )
         well_data_list = normalize_wells_to_well_data(
             well_info, inj_type, cutoff_date,

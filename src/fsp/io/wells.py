@@ -133,8 +133,14 @@ def coerce_extrapolate_injection_rates(value) -> bool:
 def resolve_extrapolate_injection_rates(
     get_param: Callable[[int, str], object],
     current_step: int,
+    data_type: Optional[str] = None,
 ) -> bool:
-    """Read extrapolate_injection_rates from current step, then Step 4, then Step 1."""
+    """Read extrapolate_injection_rates from current step, then Step 4, then Step 1.
+
+    Only monthly_fsp uses this portal flag (MATLAB monthly CSV checkbox).
+    """
+    if data_type is not None and data_type != "monthly_fsp":
+        return False
     for step in (current_step, 3, 0):
         value = get_param(step, "extrapolate_injection_rates")
         if value is not None:
@@ -152,8 +158,10 @@ def normalize_wells_to_well_data(
 
     Port of Julia prepare_well_data_for_pressure_scenario.
     cutoff_date = Dec 31 of (analysis_year - 1).
-    extrapolate_injection_rates continues the last monthly rate to cutoff when True.
+    extrapolate_injection_rates continues the last monthly_fsp rate to cutoff when True.
     """
+    if data_type != "monthly_fsp":
+        extrapolate_injection_rates = False
     result = []
     for well_id, wd in well_info.items():
         if wd.start_date > cutoff_date:
@@ -211,7 +219,7 @@ def _prepare_days_rates(
 
     elif data_type == "injection_tool_data":
         return _injection_tool_days_rates(
-            well_data, start_date, cutoff_date, extrapolate_injection_rates,
+            well_data, start_date, cutoff_date,
         )
 
     return np.array([]), np.array([])
@@ -338,9 +346,11 @@ def _injection_tool_days_rates(
     well_data: pd.DataFrame,
     start_date: date,
     cutoff_date: date,
-    extrapolate_injection_rates: bool,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Convert injection tool data to days/rates arrays."""
+    """Convert injection tool data to days/rates arrays.
+
+    Portal extrapolate_injection_rates does not apply to this format.
+    """
     dates = _parse_dates_column(well_data["Date of Injection"])
     rate_col = _injection_tool_volume_column(well_data)
     if rate_col is None:
@@ -362,7 +372,7 @@ def _injection_tool_days_rates(
         for injection_date, volume in dated_volumes:
             volume_by_month[(injection_date.year, injection_date.month)] = volume
         return _monthly_step_series(
-            volume_by_month, start_date, cutoff_date, extrapolate_injection_rates,
+            volume_by_month, start_date, cutoff_date, extrapolate_injection_rates=False,
         )
 
     days_list = []

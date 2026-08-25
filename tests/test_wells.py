@@ -73,6 +73,17 @@ class TestCoerceExtrapolateFlag:
         assert resolve_extrapolate_injection_rates(
             lambda step, _name: values.get(step), 4,
         ) is True
+        assert resolve_extrapolate_injection_rates(
+            lambda step, _name: values.get(step), 4, "monthly_fsp",
+        ) is True
+
+    def test_resolve_ignores_flag_unless_monthly_fsp(self):
+        get_param = lambda step, _name: "true"
+        assert resolve_extrapolate_injection_rates(get_param, 3, "annual_fsp") is False
+        assert resolve_extrapolate_injection_rates(
+            get_param, 3, "injection_tool_data",
+        ) is False
+        assert resolve_extrapolate_injection_rates(get_param, 3, "monthly_fsp") is True
 
 
 class TestMonthlyRateSeries:
@@ -179,3 +190,50 @@ class TestInjectionRateGraph:
         assert by_date["2018-01-01"] == pytest.approx(31000.0 / 31.0)
         assert by_date["2018-02-01"] == pytest.approx(0.0)
         assert by_date["2018-03-01"] == pytest.approx(31000.0 / 31.0)
+
+
+class TestNonMonthlyFormatsIgnoreExtrapolate:
+    def test_injection_tool_monthly_shuts_in_even_if_flag_true(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "API Number": "W1",
+                    "Surface Latitude": 31.2,
+                    "Surface Longitude": -103.7,
+                    "Date of Injection": "2018-01-15",
+                    "Monthly Injection Volume (BBLs)": 31000.0,
+                }
+            ]
+        )
+        well_info = preprocess_well_data(frame, "injection_tool_data")
+        wells = normalize_wells_to_well_data(
+            well_info, "injection_tool_data", date(2018, 12, 31),
+            extrapolate_injection_rates=True,
+        )
+        well = wells[0]
+        # Start date is 2018-01-15, so Feb 1 shut-in is day 18.
+        assert well.days[-1] == pytest.approx(18.0)
+        assert well.rates[-1] == pytest.approx(0.0)
+
+    def test_annual_uses_end_year_not_portal_flag(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "WellID": "W1",
+                    "Latitude(WGS84)": 31.0,
+                    "Longitude(WGS84)": -103.0,
+                    "StartYear": 2018,
+                    "EndYear": 2019,
+                    "InjectionRate(bbl/day)": 1000.0,
+                }
+            ]
+        )
+        well_info = preprocess_well_data(frame, "annual_fsp")
+        wells = normalize_wells_to_well_data(
+            well_info, "annual_fsp", date(2020, 12, 31),
+            extrapolate_injection_rates=True,
+        )
+        well = wells[0]
+        assert well.rates[0] == pytest.approx(1000.0)
+        assert well.rates[-1] == pytest.approx(0.0)
+        assert well.end_date == date(2018, 12, 31)
