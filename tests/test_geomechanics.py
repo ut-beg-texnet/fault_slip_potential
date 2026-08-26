@@ -445,6 +445,12 @@ class TestScientificGraphArtifacts:
         assert "All wells" in html
         assert "No wells" not in html
         assert helper.artifacts[0]["preferredHeight"] == 800
+        assert "const xRange = [0, 20];" in html
+        assert "const xDtick = 5;" in html
+        assert "const yDtick = 200;" in html
+        assert "range: xRange" in html
+        assert "dtick: xDtick" in html
+        assert "dtick: yDtick" in html
 
     def test_cdf_artifact_contains_fault_filter_controls(self, tmp_path):
         helper = _FakeHelper(tmp_path)

@@ -983,6 +983,9 @@ def _multi_curve_selector_plotly_html(
     selector_subject_plural: str,
     selector_empty_message: str,
     preferred_plot_height: str = "clamp(360px, 54vh, 500px)",
+    x_range=None,
+    x_dtick=None,
+    y_dtick=None,
 ):
     title_html = html.escape(title)
     payload_json = json.dumps(series_payload, separators=(",", ":"))
@@ -993,6 +996,9 @@ def _multi_curve_selector_plotly_html(
     selector_empty_message_json = json.dumps(selector_empty_message)
     config_json = json.dumps(PLOTLY_CONFIG)
     series_ids_json = json.dumps(list(series_payload.keys()))
+    x_range_json = json.dumps(x_range)
+    x_dtick_json = json.dumps(x_dtick)
+    y_dtick_json = json.dumps(y_dtick)
     plot_height_css = preferred_plot_height
     return f"""<!doctype html>
 <html>
@@ -1267,6 +1273,9 @@ def _multi_curve_selector_plotly_html(
     const seriesIds = {series_ids_json};
     const xLabel = {x_label_json};
     const yLabel = {y_label_json};
+    const xRange = {x_range_json};
+    const xDtick = {x_dtick_json};
+    const yDtick = {y_dtick_json};
     const selectorSubjectPlural = {selector_subject_plural_json};
     const selectorEmptyMessage = {selector_empty_message_json};
     const plotConfig = {config_json};
@@ -1386,7 +1395,9 @@ def _multi_curve_selector_plotly_html(
           tickfont: {{ color: '{MODERN_AXIS_COLOR}' }},
           zeroline: false,
           automargin: true,
-          rangemode: 'tozero'
+          rangemode: 'tozero',
+          ...(xRange ? {{ range: xRange }} : {{}}),
+          ...(xDtick !== null ? {{ tick0: 0, dtick: xDtick }} : {{}})
         }},
         yaxis: {{
           title: {{ text: yLabel, standoff: 12, font: {{ color: '{MODERN_MUTED_TEXT_COLOR}' }} }},
@@ -1397,7 +1408,8 @@ def _multi_curve_selector_plotly_html(
           tickfont: {{ color: '{MODERN_AXIS_COLOR}' }},
           zeroline: false,
           automargin: true,
-          rangemode: 'tozero'
+          rangemode: 'tozero',
+          ...(yDtick !== null ? {{ tick0: 0, dtick: yDtick }} : {{}})
         }}
       }};
       Plotly.react(document.getElementById('plot'), traces, layout, plotConfig);
@@ -3194,6 +3206,9 @@ def save_radial_curves_artifact(helper, step_index: int, radial_df: pd.DataFrame
             selector_subject_plural="wells",
             selector_empty_message="Select one or more injection wells from the legend to display their curves.",
             preferred_plot_height="clamp(360px, 54vh, 500px)",
+            x_range=[0, 20],
+            x_dtick=5,
+            y_dtick=200,
         )
         return _write_html_artifact(
             helper,

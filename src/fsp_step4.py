@@ -245,7 +245,7 @@ def main():
 
         # ---- Radial curves (pressure vs distance for each well) ----
         report_progress("Generating maps and diagrams")
-        r_km = np.linspace(0.1, 50.0, 200)
+        r_km = np.linspace(0.1, 20.0, 200)
         r_m = r_km * 1000.0
         radial_dfs = []
         for wd in well_data_list:
