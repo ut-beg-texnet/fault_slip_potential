@@ -160,6 +160,23 @@ r_fault_{index} = sqrt((fault_x - {well.x_km:.16g}).^2 + (fault_y - {well.y_km:.
 """
 
 
+def _remove_stale_outputs(paths: list[Path]) -> None:
+    """Delete leftover MATLAB CSVs so we never load a previous run."""
+    for path in paths:
+        if path.exists():
+            path.unlink()
+
+
+def _wait_for_fresh_outputs(paths: list[Path], started_at: float, timeout_s: float = 45.0) -> bool:
+    """Wait until every path exists and was written after this MATLAB launch."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if all(path.exists() and path.stat().st_mtime >= started_at - 1.0 and path.stat().st_size > 0 for path in paths):
+            return True
+        time.sleep(0.25)
+    return False
+
+
 def run_matlab(args: argparse.Namespace, faults: pd.DataFrame, wells: list[WellSeries], strho,
                selected_well: WellSeries, samples_percent: np.ndarray | None) -> dict[str, np.ndarray]:
     """Generate and run a self-contained R2012b pfront driver."""
@@ -171,6 +188,8 @@ def run_matlab(args: argparse.Namespace, faults: pd.DataFrame, wells: list[WellS
     fault_file = output / "matlab_fault_pressure.csv"
     mc_file = output / "matlab_mc_fault_pressure.csv"
     script_file = output / "matlab_hydrology_regression_driver.m"
+    required = [radial_file, fault_file] + ([mc_file] if samples_percent is not None else [])
+    _remove_stale_outputs(required)
 
     fault_x = faults["x_km"].to_numpy(float)
     fault_y = faults["y_km"].to_numpy(float)
@@ -233,26 +252,23 @@ csvwrite('{matlab_path(radial_file)}',[radial_km,radial_pressure]);
 exit
 """
     script_file.write_text(script, encoding="utf-8")
+    # -wait keeps matlab.exe attached until the script's exit (R2012b Windows).
     command = [
-        str(args.matlab_executable), "-nojvm", "-nosplash", "-nodesktop",
+        str(args.matlab_executable), "-wait", "-nojvm", "-nosplash", "-nodesktop",
         "-r", f"run('{matlab_path(script_file)}')",
     ]
+    started_at = time.time()
     completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=300)
-    required = [radial_file, fault_file] + ([mc_file] if samples_percent is not None else [])
-    deadline = time.monotonic() + 45.0
-    while not all(path.exists() for path in required) and time.monotonic() < deadline:
-        time.sleep(0.25)
-    if not all(path.exists() for path in required):
+    if not _wait_for_fresh_outputs(required, started_at):
         detail = (completed.stdout + "\n" + completed.stderr).strip()
         raise RuntimeError(f"MATLAB R2012b did not produce all outputs. {detail}")
 
     result = {
-        "radial": np.loadtxt(radial_file, delimiter=","),
-        "fault": np.loadtxt(fault_file, delimiter=","),
+        "radial": np.atleast_2d(np.loadtxt(radial_file, delimiter=",")),
+        "fault": np.atleast_1d(np.loadtxt(fault_file, delimiter=",")),
     }
     if samples_percent is not None:
-        result["mc"] = np.loadtxt(mc_file, delimiter=",")
-        result["mc"] = np.atleast_2d(result["mc"])
+        result["mc"] = np.atleast_2d(np.loadtxt(mc_file, delimiter=","))
     return result
 
 
@@ -280,12 +296,19 @@ def make_samples(args: argparse.Namespace) -> tuple[np.ndarray | None, np.ndarra
 
 
 def compare_frame(distance_or_id, python_values, matlab_values, key: str) -> pd.DataFrame:
-    python_values = np.asarray(python_values, dtype=float)
-    matlab_values = np.asarray(matlab_values, dtype=float)
+    labels = np.asarray(distance_or_id).reshape(-1)
+    python_values = np.asarray(python_values, dtype=float).reshape(-1)
+    matlab_values = np.asarray(matlab_values, dtype=float).reshape(-1)
+    if not (len(labels) == len(python_values) == len(matlab_values)):
+        raise ValueError(
+            f"{key} comparison length mismatch: {len(labels)} labels, "
+            f"{len(python_values)} Python values, {len(matlab_values)} MATLAB values. "
+            "Stale MATLAB CSVs from a previous run can cause this."
+        )
     absolute_error = np.abs(python_values - matlab_values)
     relative_error = absolute_error / np.maximum(np.abs(matlab_values), 1.0)
     return pd.DataFrame({
-        key: distance_or_id,
+        key: labels,
         "python_pressure_psi": python_values,
         "matlab_pressure_psi": matlab_values,
         "absolute_error_psi": absolute_error,
