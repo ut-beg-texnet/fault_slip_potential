@@ -27,6 +27,7 @@ from fsp.hydrology.theis import pressureScenario_Rall
 DEFAULT_FAULTS = ROOT / "examples" / "demo_texas_faults_fsp_100_variable_fsp.csv"
 DEFAULT_WELLS = ROOT / "examples" / "demo_texas_injection_wells_monthly_fsp_20wells_variable_fsp.csv"
 DEFAULT_MATLAB = Path(r"C:\Program Files\MATLAB\R2012b\bin\matlab.exe")
+DEFAULT_MATLAB_CODE = ROOT / "reference_old_code"
 KM_PER_DEG_LAT = 111.0
 
 
@@ -47,6 +48,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--faults", type=Path, default=DEFAULT_FAULTS)
     parser.add_argument("--wells", type=Path, default=DEFAULT_WELLS)
     parser.add_argument("--matlab-executable", type=Path, default=DEFAULT_MATLAB)
+    parser.add_argument(
+        "--matlab-code",
+        "--matlab_code",
+        dest="matlab_code",
+        type=Path,
+        default=DEFAULT_MATLAB_CODE,
+        help="Root folder of the legacy MATLAB FSP code (must contain 'technical code').",
+    )
     parser.add_argument("--output-dir", type=Path, default=ROOT / "hydrology_regression_output")
     parser.add_argument("--year", type=int, default=2031)
     parser.add_argument("--well-id", help="Well ID used for the radial plot; defaults to the first active well.")
@@ -143,6 +152,23 @@ def matlab_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace("'", "''")
 
 
+def resolve_matlab_technical_code(matlab_code: Path) -> Path:
+    """Return the MATLAB ``technical code`` folder that contains pfront and calcST."""
+    technical_code = matlab_code / "technical code"
+    if not technical_code.is_dir():
+        raise FileNotFoundError(
+            f"MATLAB technical code was not found at {technical_code}. "
+            "Pass --matlab-code pointing at the MATLAB FSP root "
+            "(the folder that contains a 'technical code' subdirectory)."
+        )
+    missing = [name for name in ("pfront.m", "calcST.m") if not (technical_code / name).is_file()]
+    if missing:
+        raise FileNotFoundError(
+            f"MATLAB technical code at {technical_code} is missing: {', '.join(missing)}."
+        )
+    return technical_code
+
+
 def matlab_events(well: WellSeries, year: int) -> tuple[np.ndarray, np.ndarray]:
     """Map Python step changes to pfront's preceding-timestamp convention."""
     evaluation_days = float((date(year - 1, 12, 31) - well.start_date).days + 1)
@@ -182,6 +208,7 @@ def run_matlab(args: argparse.Namespace, faults: pd.DataFrame, wells: list[WellS
     """Generate and run a self-contained R2012b pfront driver."""
     if not args.matlab_executable.exists():
         raise FileNotFoundError(f"MATLAB R2012b was not found: {args.matlab_executable}")
+    technical_code = resolve_matlab_technical_code(args.matlab_code)
 
     output = args.output_dir
     radial_file = output / "matlab_radial_pressure.csv"
@@ -224,7 +251,7 @@ end
 csvwrite('{matlab_path(mc_file)}',mc_pressure);
 """
 
-    script = f"""addpath('{matlab_path(ROOT / 'reference_old_code' / 'technical code')}');
+    script = f"""addpath('{matlab_path(technical_code)}');
 fault_x = {matlab_vector(fault_x)};
 fault_y = {matlab_vector(fault_y)};
 {blocks}
@@ -342,6 +369,7 @@ def run() -> int:
     args = parse_args()
     if not 0.0 < args.porosity_fraction < 1.0:
         raise ValueError("--porosity-fraction must be greater than 0 and less than 1.")
+    resolve_matlab_technical_code(args.matlab_code)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     faults = pd.read_csv(args.faults, dtype={"FaultID": str})
@@ -427,6 +455,7 @@ def run() -> int:
         "tolerance": {"relative_at_least_1_psi": 0.01, "absolute_below_1_psi": 0.01},
         "inputs": {
             "year": args.year, "well_id": selected_well.well_id,
+            "matlab_code": str(args.matlab_code.resolve()),
             "porosity_fraction_python": args.porosity_fraction,
             "porosity_percent_matlab": args.porosity_fraction * 100.0,
             "projection_origin_wgs84": {"latitude": origin_lat, "longitude": origin_lon},
