@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "max_relative_error": 0.000303641971457184,
+  "tolerance": {
+    "relative_at_least_1_psi": 0.01,
+    "absolute_below_1_psi": 0.01
+  },
+  "inputs": {
+    "year": 2021,
+    "well_id": "CMP_WELL_01",
+    "porosity_fraction_python": 0.1,
+    "porosity_percent_matlab": 10.0,
+    "projection_origin_wgs84": {
+      "latitude": 31.23002931952663,
+      "longitude": -103.69994701183435
+    },
+    "random_seed": 12345,
+    "mc_iterations": 0,
+    "mc_uncertainty": {}
+  },
+  "outputs": {
+    "radial_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\radial_pressure_comparison.csv",
+    "fault_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\fault_pressure_comparison.csv",
+    "plot_html": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\pressure_distance_side_by_side.html"
+  }
+}

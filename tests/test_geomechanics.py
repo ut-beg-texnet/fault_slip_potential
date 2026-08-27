@@ -38,6 +38,20 @@ from graphs.scientific import (
     save_uncertainty_tornado_artifact,
 )
 
+# Match argparse defaults in run_matlab_python_geomechanics_regression.py.
+REFERENCE_DEPTH_FT = 11000.0
+VERTICAL_STRESS_PSI_FT = 1.1
+MIN_HORIZONTAL_STRESS_PSI_FT = 0.693
+MAX_HORIZONTAL_STRESS_PSI_FT = 1.11
+PORE_PRESSURE_PSI_FT = 0.43
+MAX_STRESS_AZIMUTH_DEG = 70.0
+FRICTION_COEFFICIENT = 0.58
+APHI_VALUE = 1.22
+SV_PSI = VERTICAL_STRESS_PSI_FT * REFERENCE_DEPTH_FT
+SHMIN_PSI = MIN_HORIZONTAL_STRESS_PSI_FT * REFERENCE_DEPTH_FT
+SHMAX_PSI = MAX_HORIZONTAL_STRESS_PSI_FT * REFERENCE_DEPTH_FT
+P0_PSI = PORE_PRESSURE_PSI_FT * REFERENCE_DEPTH_FT
+
 
 class TestCalculateNPhi:
     def test_normal_faulting(self):
@@ -73,25 +87,25 @@ class TestCalculateNPhi:
 class TestCalculateAbsoluteStresses:
     def test_gradients_model(self):
         stress_data = {
-            "reference_depth": 5000.0,
-            "vertical_stress": 1.0,
-            "pore_pressure": 0.45,
-            "max_stress_azimuth": 60.0,
-            "min_horizontal_stress": 0.7,
-            "max_horizontal_stress": 0.9,
+            "reference_depth": REFERENCE_DEPTH_FT,
+            "vertical_stress": VERTICAL_STRESS_PSI_FT,
+            "pore_pressure": PORE_PRESSURE_PSI_FT,
+            "max_stress_azimuth": MAX_STRESS_AZIMUTH_DEG,
+            "min_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+            "max_horizontal_stress": MAX_HORIZONTAL_STRESS_PSI_FT,
         }
-        state, p0 = calculate_absolute_stresses(stress_data, 0.6, "gradients")
-        assert abs(state.principal_stresses[0] - 5000.0) < 0.1   # Svert
-        assert abs(state.principal_stresses[1] - 3500.0) < 0.1   # Shmin
-        assert abs(state.principal_stresses[2] - 4500.0) < 0.1   # SHmax
-        assert abs(p0 - 2250.0) < 0.1
+        state, p0 = calculate_absolute_stresses(stress_data, FRICTION_COEFFICIENT, "gradients")
+        assert abs(state.principal_stresses[0] - SV_PSI) < 0.1   # Svert
+        assert abs(state.principal_stresses[1] - SHMIN_PSI) < 0.1   # Shmin
+        assert abs(state.principal_stresses[2] - SHMAX_PSI) < 0.1   # SHmax
+        assert abs(p0 - P0_PSI) < 0.1
 
 
 class TestFaultEffectiveStresses:
     def setup_method(self):
-        # Simple normal faulting stress state
-        self.state = StressState(np.array([5000.0, 3500.0, 4500.0]), 60.0)
-        self.p0 = 2250.0
+        # Absolute stresses from the regression default gradients.
+        self.state = StressState(np.array([SV_PSI, SHMIN_PSI, SHMAX_PSI]), MAX_STRESS_AZIMUTH_DEG)
+        self.p0 = P0_PSI
 
     def test_scalar_inputs(self):
         sig, tau, *_ = calculate_fault_effective_stresses(30.0, 75.0, self.state, self.p0, 0.0)
@@ -116,18 +130,18 @@ class TestFaultEffectiveStresses:
 
 class TestComputeCriticalPorePressure:
     def test_positive_pressure_needed(self):
-        pp = ComputeCriticalPorePressureForFailure(1000.0, 300.0, 0.6)
+        pp = ComputeCriticalPorePressureForFailure(1000.0, 300.0, FRICTION_COEFFICIENT)
         assert float(pp) > 0.0
 
     def test_already_slipping(self):
         # tau/sig > mu → already above failure → Pcritical = 0
-        pp = ComputeCriticalPorePressureForFailure(100.0, 100.0, 0.6)
+        pp = ComputeCriticalPorePressureForFailure(100.0, 100.0, FRICTION_COEFFICIENT)
         assert float(pp) == 0.0
 
     def test_vectorised(self):
         sig = np.array([1000.0, 2000.0, 500.0])
         tau = np.array([300.0, 800.0, 100.0])
-        pp = ComputeCriticalPorePressureForFailure(sig, tau, 0.6)
+        pp = ComputeCriticalPorePressureForFailure(sig, tau, FRICTION_COEFFICIENT)
         assert pp.shape == (3,)
         assert np.all(pp >= 0.0)
 
@@ -135,15 +149,15 @@ class TestComputeCriticalPorePressure:
 class TestHydrologyMohrData:
     def test_hydrology_mohr_carries_pressure_and_shifted_arcs(self):
         arcs_df, slip_df, fault_df = mohr_diagram_hydro_data_to_d3(
-            3500.0,
-            4500.0,
-            5000.0,
+            SHMIN_PSI,
+            SHMAX_PSI,
+            SV_PSI,
             tau_faults=[620.0, 700.0],
             sigma_faults=[6485.0, 5900.0],
-            p0=2250.0,
+            p0=P0_PSI,
             dp_array=[0.0, 500.0],
             strikes=[30.0, 45.0],
-            mu=0.6,
+            mu=FRICTION_COEFFICIENT,
             fault_ids=["A", "B"],
             slip_pressures=[3200.0, 1800.0],
         )
@@ -163,8 +177,8 @@ class TestHydrologyMohrData:
 
 class TestAnalyzeFault:
     def test_returns_expected_keys(self):
-        state = StressState(np.array([5000.0, 3500.0, 4500.0]), 60.0)
-        result = analyze_fault(30.0, 75.0, 0.6, state, 2250.0, 0.0)
+        state = StressState(np.array([SV_PSI, SHMIN_PSI, SHMAX_PSI]), MAX_STRESS_AZIMUTH_DEG)
+        result = analyze_fault(30.0, 75.0, FRICTION_COEFFICIENT, state, P0_PSI, 0.0)
         for key in ["normal_stress", "shear_stress", "slip_pressure",
                      "slip_tendency", "coulomb_failure_function", "shear_capacity_utilization"]:
             assert key in result
@@ -174,13 +188,13 @@ class TestAnalyzeFault:
 
 def _mc_inputs():
     stress_data = {
-        "reference_depth": 5000.0,
-        "vertical_stress": 1.0,
-        "pore_pressure": 0.45,
-        "max_stress_azimuth": 60.0,
-        "min_horizontal_stress": 0.7,
-        "max_horizontal_stress": 0.9,
-        "aphi_value": None,
+        "reference_depth": REFERENCE_DEPTH_FT,
+        "vertical_stress": VERTICAL_STRESS_PSI_FT,
+        "pore_pressure": PORE_PRESSURE_PSI_FT,
+        "max_stress_azimuth": MAX_STRESS_AZIMUTH_DEG,
+        "min_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+        "max_horizontal_stress": MAX_HORIZONTAL_STRESS_PSI_FT,
+        "aphi_value": APHI_VALUE,
     }
     faults = pd.DataFrame({
         "FaultID": ["A", "B"],
@@ -204,7 +218,7 @@ class TestGeomechanicsMonteCarloMetadata:
     def test_default_return_shape_is_preserved(self):
         stress_data, faults, uncertainties = _mc_inputs()
         results = run_geomechanics_mc(
-            stress_data, faults, 5, uncertainties, "gradients", 0.6, random_seed=42
+            stress_data, faults, 5, uncertainties, "gradients", FRICTION_COEFFICIENT, random_seed=42
         )
         assert list(results.columns) == ["SimulationID", "FaultID", "SlipPressure"]
         assert len(results) == 10
@@ -212,7 +226,7 @@ class TestGeomechanicsMonteCarloMetadata:
     def test_can_return_sample_inputs(self):
         stress_data, faults, uncertainties = _mc_inputs()
         results, sample_inputs = run_geomechanics_mc(
-            stress_data, faults, 5, uncertainties, "gradients", 0.6,
+            stress_data, faults, 5, uncertainties, "gradients", FRICTION_COEFFICIENT,
             random_seed=42, return_sample_inputs=True
         )
         assert len(results) == 10
@@ -272,12 +286,12 @@ class TestUncertaintyVariabilityData:
             "friction_coefficient_uncertainty": 0.05,
         }
         stress_inputs = {
-            "vertical_stress": 1.0,
-            "pore_pressure": 0.45,
-            "max_stress_azimuth": 60.0,
-            "max_horizontal_stress": 0.9,
-            "min_horizontal_stress": 0.7,
-            "friction_coefficient": 0.58,
+            "vertical_stress": VERTICAL_STRESS_PSI_FT,
+            "pore_pressure": PORE_PRESSURE_PSI_FT,
+            "max_stress_azimuth": MAX_STRESS_AZIMUTH_DEG,
+            "max_horizontal_stress": MAX_HORIZONTAL_STRESS_PSI_FT,
+            "min_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+            "friction_coefficient": FRICTION_COEFFICIENT,
         }
         fault_inputs = pd.DataFrame({
             "Strike": [324.5],
@@ -295,8 +309,8 @@ class TestUncertaintyVariabilityData:
         assert variability.loc["SHmax Azimuth", "max"] == pytest.approx(6.67)
         assert variability.loc["Strike of fault", "max"] == pytest.approx(7.22)
         assert variability.loc["Dip of fault", "max"] == pytest.approx(6.67)
-        assert variability.loc["Pore Press Grad", "max"] == pytest.approx(6.67)
-        assert variability.loc["Friction Coeff", "max"] == pytest.approx(8.33)
+        assert variability.loc["Pore Press Grad", "max"] == pytest.approx(6.98)
+        assert variability.loc["Friction Coeff", "max"] == pytest.approx(8.62)
 
 
 class TestProbabilisticGeomechanicsMapData:
