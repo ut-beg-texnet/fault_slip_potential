@@ -1,0 +1,20 @@
+ 
+To get started, type one of these: helpwin, helpdesk, or demo.
+For product information, visit www.mathworks.com.
+ 
+DEBUG MATLAB: max(t) = 252460802 seconds = 2922 days
+DEBUG MATLAB: length(t) = 98
+DEBUG MATLAB: First 5 t values (days): 0   31   59   90  120
+DEBUG MATLAB: Last 5 t values (days): 2830           2861           2891           2922           2922
+u: Size = [1 1], Class = double
+well_func: Size = [1 1], Class = double
+tstep_sum: Size = [1 1], Class = double
+t: Size = [98 1], Class = double
+DEBUG MATLAB: max(t) = 252460802 seconds = 2922 days
+DEBUG MATLAB: length(t) = 98
+DEBUG MATLAB: First 5 t values (days): 0   31   59   90  120
+DEBUG MATLAB: Last 5 t values (days): 2830           2861           2891           2922           2922
+u: Size = [200 1], Class = double
+well_func: Size = [200 1], Class = double
+tstep_sum: Size = [200 1], Class = double
+t: Size = [98 1], Class = double

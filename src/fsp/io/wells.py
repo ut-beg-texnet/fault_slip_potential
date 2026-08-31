@@ -63,8 +63,6 @@ def get_date_bounds(df: pd.DataFrame) -> Tuple[date, date]:
 
 def preprocess_well_data(df: pd.DataFrame, data_type: str) -> dict:
     """Pre-process injection DataFrame into a dict of ProcessedWellData keyed by well_id.
-
-    Port of Julia preprocess_well_data.
     """
     well_id_col = "API Number" if data_type == "injection_tool_data" else "WellID"
     lat_col = "Surface Latitude" if data_type == "injection_tool_data" else "Latitude(WGS84)"

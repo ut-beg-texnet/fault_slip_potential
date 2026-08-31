@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "rates_passed": true,
+  "pressure_passed": true,
+  "max_relative_error": 0.000618715704607286,
+  "max_rate_absolute_error_bbl_day": 0.0,
+  "tolerance": {
+    "relative_at_least_1_psi": 0.01,
+    "absolute_below_1_psi": 0.01,
+    "rate_absolute_bbl_day": 0.01
+  },
+  "inputs": {
+    "year": 2026,
+    "well_id": "SYN_SWD_01",
+    "wells_format": "monthly_fsp",
+    "extrapolate_injection_rates": false,
+    "matlab_code": "C:\\Users\\bakirtzisn\\Desktop\\FSP_dev_test\\matlab_code",
+    "porosity_fraction_python": 0.1,
+    "porosity_percent_matlab": 10.0,
+    "projection_origin_wgs84": {
+      "latitude": 31.23022680412372,
+      "longitude": -103.69977319587633
+    },
+    "random_seed": 12345,
+    "mc_iterations": 0,
+    "mc_uncertainty": {}
+  },
+  "outputs": {
+    "rate_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\monthly_one_fault\\well_rate_series_comparison.csv",
+    "python_rates_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\monthly_one_fault\\python_well_rates.csv",
+    "matlab_rates_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\monthly_one_fault\\matlab_well_rates.csv",
+    "radial_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\monthly_one_fault\\radial_pressure_comparison.csv",
+    "fault_csv": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\monthly_one_fault\\fault_pressure_comparison.csv",
+    "plot_html": "C:\\texnetwebtools\\tools\\fsp_python\\hydrology_regression_output\\monthly_one_fault\\pressure_distance_side_by_side.html"
+  }
+}

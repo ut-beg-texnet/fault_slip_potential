@@ -1,0 +1,2 @@
+function centerFigure(varargin)
+end

@@ -9,6 +9,7 @@ reference_old_code/
 examples/
 .claude/
 .cursor/
+.codex/
 
 FSP_DEMO_TCEQ.md
 
