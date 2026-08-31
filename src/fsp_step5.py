@@ -239,7 +239,7 @@ def main():
             STEP,
             hydro_sample_inputs,
             artifact_key="fsp-probabilistic-hydrology-histogram",
-            title="Probabilistic Hydrology Histogram",
+            title=f"Probabilistic Hydrology Histogram for {year_of_interest}",
             display_order=51,
         )
 
@@ -265,7 +265,7 @@ def main():
                         cdf_df,
                         geo_cdf_df,
                         artifact_key="fsp-probabilistic-hydrology-cdf",
-                        title="Probability of Pressure Exceedance",
+                        title=f"Probability of Pressure Exceedance for {year_of_interest}",
                         display_order=50,
                     )
                 else:
@@ -274,7 +274,7 @@ def main():
                         STEP,
                         cdf_df,
                         artifact_key="fsp-probabilistic-hydrology-cdf",
-                        title="Probability of Pressure Exceedance",
+                        title=f"Probability of Pressure Exceedance for {year_of_interest}",
                         pressure_label="Pressure Change (psi)",
                         probability_label="Exceedance Probability",
                         display_order=50,
@@ -300,7 +300,7 @@ def main():
                     faults_with_fsp["FaultID"].astype(str).map(probabilities).fillna(0.0)
                 )
                 result_fields = ["prob_hydro_fsp"]
-                map_title = "Probabilistic Hydrology FSP Map"
+                map_title = f"Probabilistic Hydrology FSP Map for {year_of_interest}"
                 map_caption = "Leaflet map of probabilistic hydrology fault slip probability results."
                 value_column = "prob_hydro_fsp"
                 legend_title = "Probabilistic Hydrology FSP"
@@ -322,7 +322,7 @@ def main():
                 faults_with_fsp["prob_hydro_fsp"] = None
                 faults_with_fsp["prob_hydro_pressure"] = faults_with_fsp["FaultID"].astype(str).map(pressure_lookup)
                 result_fields = ["prob_hydro_pressure"]
-                map_title = "Probabilistic Hydrology Pressure Map"
+                map_title = f"Probabilistic Hydrology Pressure Map for {year_of_interest}"
                 map_caption = "Leaflet map of probabilistic hydrology pressure results. FSP was not computed because geomechanics was skipped."
                 value_column = "prob_hydro_pressure"
                 legend_title = "Mean Probabilistic Hydrology Pressure"

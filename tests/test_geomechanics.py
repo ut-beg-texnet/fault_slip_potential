@@ -465,6 +465,22 @@ class TestScientificGraphArtifacts:
         assert "range: xRange" in html
         assert "dtick: xDtick" in html
         assert "dtick: yDtick" in html
+        assert helper.artifacts[0]["title"] == "Hydrology Radial Pressure"
+
+    def test_radial_pressure_artifact_title_includes_year_of_interest(self, tmp_path):
+        helper = _FakeHelper(tmp_path)
+        radial_df = pd.DataFrame({
+            "ID": ["WELL_A", "WELL_A"],
+            "Distance_km": [0.0, 10.0],
+            "Pressure_psi": [50.0, 5.0],
+        })
+        title = "Hydrology Radial Pressure for 2026"
+
+        path = save_radial_curves_artifact(helper, 0, radial_df, title=title)
+
+        html = open(path, encoding="utf-8").read()
+        assert helper.artifacts[0]["title"] == title
+        assert title in html
 
     def test_cdf_artifact_contains_fault_filter_controls(self, tmp_path):
         helper = _FakeHelper(tmp_path)

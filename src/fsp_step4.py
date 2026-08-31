@@ -264,7 +264,10 @@ def main():
         radial_df = pd.concat(radial_dfs, ignore_index=True) if radial_dfs else pd.DataFrame()
         # Portal CSV not needed; graph artifact covers this output.
         # helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "radial_curves_data", radial_df)
-        save_radial_curves_artifact(helper, STEP, radial_df)
+        save_radial_curves_artifact(
+            helper, STEP, radial_df,
+            title=f"Hydrology Radial Pressure for {year_of_interest}",
+        )
 
         # ---- Deterministic hydrology results per fault ----
         hydro_result_df = fault_df.copy()
@@ -279,7 +282,7 @@ def main():
             hydro_result_df,
             well_summary_df,
             artifact_key="fsp-deterministic-hydrology-map",
-            title="Hydrology Pressure Map",
+            title=f"Hydrology Pressure Map for {year_of_interest}",
             caption="Interactive hydrology pressure map with selected-well pressure grid summation.",
             display_order=41,
         )
@@ -338,7 +341,7 @@ def main():
                 fault_df_mohr,
                 step_index=STEP,
                 artifact_key="fsp-deterministic-hydrology-mohr-diagram",
-                title="Hydrology Mohr Diagram",
+                title=f"Hydrology Mohr Diagram for {year_of_interest}",
                 display_order=42,
                 stress_regime=hydro_regime,
             )
