@@ -24,6 +24,7 @@ from graphs.artifacts import (
     MODERN_TEXT_COLOR,
     PLOTLY_CONFIG,
     SCIENTIFIC_COLORS,
+    FSP_COLOR_SCALE,
     SLIP_PRESSURE_COLOR_SCALE,
     add_graph_warning,
     apply_modern_subplots_layout,
@@ -40,6 +41,11 @@ from graphs.artifacts import (
 
 def _warn_prefix(title):
     return f"{title} graph was not generated"
+
+
+def _colorscale_css_stops(stops) -> str:
+    """Format Plotly-style [t, hex] stops as a CSS linear-gradient color list."""
+    return ", ".join(f"{color} {round(float(stop) * 100):.0f}%" for stop, color in stops)
 
 
 def _write_html_artifact(
@@ -202,7 +208,11 @@ def _single_series_plotly_html(
     series_ids_json = json.dumps(list(series_payload.keys()))
     auto_color_min_json = json.dumps(auto_color_min)
     auto_color_max_json = json.dumps(auto_color_max)
-    color_scale_json = json.dumps(SLIP_PRESSURE_COLOR_SCALE, separators=(",", ":"))
+    # FSP Through Time: green at 0 (low/safe), red at 1 (high). Other charts use
+    # the slip-pressure scale (red at low pressure, green at high).
+    active_color_scale = FSP_COLOR_SCALE if show_fsp_background else SLIP_PRESSURE_COLOR_SCALE
+    color_scale_json = json.dumps(active_color_scale, separators=(",", ":"))
+    colorbar_ramp_css = _colorscale_css_stops(active_color_scale)
     year_of_interest_json = json.dumps(year_of_interest)
     show_fsp_background_json = json.dumps(show_fsp_background)
     show_color_tab_json = json.dumps(show_color_tab)
@@ -428,7 +438,7 @@ def _single_series_plotly_html(
       height: 8px;
       border-radius: 999px;
       border: 1px solid rgba(15, 23, 42, 0.12);
-      background: linear-gradient(90deg, #800000 0%, #ff0000 8%, #ff5a00 18%, #ffc300 28%, #ffff00 35%, #ffff00 67%, #aad400 78%, #61b000 88%, #007f00 100%);
+      background: linear-gradient(90deg, {colorbar_ramp_css});
     }}
     .colorbar-values {{
       display: flex;

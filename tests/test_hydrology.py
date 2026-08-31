@@ -50,6 +50,7 @@ from fsp_step6 import (
     _fault_summary_for_year,
     _has_geomechanics_cdf as _step6_has_geomechanics_cdf,
     _summary_map_configuration,
+    _summary_map_field_labels,
 )
 from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 
@@ -595,6 +596,17 @@ def test_selected_year_is_clamped_to_injection_and_diffusion_window(
     if message:
         assert str(requested_year) in message
         assert str(expected_year) in message
+
+def test_step6_summary_map_labels_use_normalized_analysis_year():
+    adjusted_year, _, _ = normalize_year_of_interest(
+        2018, date(2020, 1, 1), date(2021, 12, 31)
+    )
+
+    assert adjusted_year == 2020
+    assert _summary_map_field_labels(adjusted_year) == {
+        "summary_fsp": "FSP 2020",
+        "summary_pressure": "Pressure Change 2020",
+    }
 
 def test_summary_fault_values_use_only_the_selected_year():
     faults = pd.DataFrame({"FaultID": ["A", "B", "C"]})

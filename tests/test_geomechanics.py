@@ -414,6 +414,12 @@ class TestScientificGraphArtifacts:
         ]
         assert [artifact["preferredHeight"] for artifact in helper.artifacts] == [740, 740]
 
+        fsp_html = open(helper.artifacts[0]["path"], encoding="utf-8").read()
+        # Green at FSP 0, red at FSP 1 (reverse of the slip-pressure scale).
+        assert '[[0.0,"#007f00"]' in fsp_html
+        assert "linear-gradient(90deg, #007f00 0%" in fsp_html
+        assert '[[0.0,"#800000"]' not in fsp_html
+
     def test_radial_pressure_artifact_contains_well_selector_controls(self, tmp_path):
         helper = _FakeHelper(tmp_path)
         radial_df = pd.DataFrame({

@@ -157,6 +157,13 @@ def _summary_map_configuration(has_geomechanics_cdf: bool) -> dict:
     }
 
 
+def _summary_map_field_labels(year_of_interest: int) -> dict:
+    """Return tooltip labels for the selected summary analysis year."""
+    return {
+        "summary_fsp": f"FSP {year_of_interest}",
+        "summary_pressure": f"Pressure Change {year_of_interest}",
+    }
+
 def _run_deterministic_hydro_time_series(STRho, well_data_list, fault_df, years_to_analyze):
     """Re-run deterministic hydrology for all years (used when model_run=0)."""
     fault_lats = fault_df["Latitude(WGS84)"].values.astype(float)
@@ -207,6 +214,7 @@ def main():
         year_of_interest, start_year, end_year = normalize_year_of_interest(
             requested_year, inj_start_date, inj_end_date
         )
+        summary_map_field_labels = _summary_map_field_labels(year_of_interest)
         year_message = selected_year_message(requested_year, year_of_interest, start_year, end_year)
         if year_message:
             helper.addMessageWithStepIndex(STEP, year_message, 1)
@@ -358,6 +366,7 @@ def main():
             color_scale=map_config["color_scale"],
             value_min_default=map_config["value_min_default"],
             value_max_default=map_config["value_max_default"],
+            field_labels=summary_map_field_labels,
         )
 
         # Portal CSV not needed; graph artifact covers this output.

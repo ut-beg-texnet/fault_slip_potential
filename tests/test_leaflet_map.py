@@ -211,6 +211,10 @@ def test_summary_fsp_map_manifest_uses_fixed_fsp_color_range(tmp_path):
         color_scale=FSP_COLOR_SCALE,
         value_min_default=0.0,
         value_max_default=1.0,
+        field_labels={
+            "summary_fsp": "FSP 2024",
+            "summary_pressure": "Pressure Change 2024",
+        },
     )
 
     manifest = json.load(open(output_path, encoding="utf-8"))
@@ -220,6 +224,8 @@ def test_summary_fsp_map_manifest_uses_fixed_fsp_color_range(tmp_path):
     assert fault_layer["style"]["colorScale"] == FSP_COLOR_SCALE
     assert fault_layer["style"]["minValue"] == 0.0
     assert fault_layer["style"]["maxValue"] == 1.0
+    assert fault_layer["fieldLabels"]["summary_fsp"] == "FSP 2024"
+    assert fault_layer["fieldLabels"]["summary_pressure"] == "Pressure Change 2024"
     fault_layer_df = pd.read_csv(tmp_path / fault_layer["source"]["path"])
     assert {"summary_fsp", "summary_pressure"}.issubset(fault_layer_df.columns)
 
