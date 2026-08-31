@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from fsp.probabilistic_fsp import displayed_legacy_fsp
 from graphs.artifacts import (
     MODERN_AXIS_COLOR,
     MODERN_BORDER_COLOR,
@@ -2027,12 +2028,7 @@ def save_probabilistic_hydrology_cdf_artifact(
 
             hydro_pressures = hyd_fault_df["slip_pressure"].to_numpy(dtype=float)
             geo_pressures = geo_fault_df["slip_pressure"].to_numpy(dtype=float)
-            geo_sorted = np.sort(geo_pressures[np.isfinite(geo_pressures)])
-            if len(geo_sorted) and len(hydro_pressures):
-                fsp_values = np.searchsorted(geo_sorted, hydro_pressures, side="right").astype(float) / float(len(geo_sorted))
-                fsp = round(float(np.mean(fsp_values)), 6)
-            else:
-                fsp = 0.0
+            fsp = displayed_legacy_fsp(geo_pressures, hydro_pressures)
 
             hyd_clean = hydro_pressures[np.isfinite(hydro_pressures)]
             geo_clean = geo_pressures[np.isfinite(geo_pressures)]

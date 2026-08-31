@@ -32,9 +32,17 @@ from fsp.io.wells import preprocess_well_data, normalize_wells_to_well_data
 from fsp.io.coords import create_projected_spatial_grid
 from fsp.models.hydrology import HydrologyParams
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
+from fsp.probabilistic_fsp import (
+    _matlab_ecdf_lookup,
+    _matlab_hydro_ecdf_queries,
+    displayed_legacy_fsp,
+    legacy_fsp,
+    legacy_fsp_probabilities,
+    normalize_year_of_interest,
+    selected_year_message,
+)
 from fsp_step5 import (
     _combined_slip_potential_rows,
-    _empirical_geomechanics_probabilities,
     _has_geomechanics_cdf as _step5_has_geomechanics_cdf,
 )
 from fsp_step6 import (
@@ -410,18 +418,70 @@ def test_probabilistic_hydrology_step_does_not_emit_slip_potential_graph():
     assert "fsp-probabilistic-hydrology-slip-potential" not in step5_source
 
 
-def test_empirical_geomechanics_lookup_counts_slip_pressures_at_or_below_hydro_pressure():
+def test_legacy_fsp_lookup_matches_matlab_ecdf_nearest_neighbor_rule():
     geo_pressures = np.array([10.0, 20.0, 30.0, 40.0])
-    hydro_pressures = np.array([5.0, 10.0, 25.0, 40.0, 50.0])
+    hydro_pressures = np.array([5.0, 12.0, 15.0, 24.0, 38.0, 50.0])
 
-    probabilities = _empirical_geomechanics_probabilities(geo_pressures, hydro_pressures)
+    # MATLAB ecdf unique x duplicates the minimum, then interp1 nearest.
+    assert np.allclose(
+        _matlab_hydro_ecdf_queries(hydro_pressures),
+        [5.0, 5.0, 12.0, 15.0, 24.0, 38.0, 50.0],
+    )
+    probabilities = legacy_fsp_probabilities(geo_pressures, hydro_pressures)
+    assert np.allclose(probabilities, [0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
 
-    assert np.allclose(probabilities, [0.0, 0.25, 0.5, 1.0, 1.0])
+
+def test_legacy_fsp_lookup_clips_negative_pressures_and_keeps_first_duplicate():
+    lookup_pressures, lookup_probabilities = _matlab_ecdf_lookup(
+        np.array([-2.0, -1.0, 0.0, 2.0, 2.0, 4.0])
+    )
+
+    assert np.allclose(lookup_pressures, [0.0, 2.0, 4.0])
+    assert np.allclose(lookup_probabilities, [0.0, 5.0 / 6.0, 1.0])
+    assert np.allclose(
+        legacy_fsp_probabilities(
+            [-2.0, -1.0, 0.0, 2.0, 2.0, 4.0],
+            [-1.0, 0.0, 0.9, 2.0, 4.0],
+        ),
+        [0.0, 0.0, 0.0, 0.0, 5.0 / 6.0, 1.0],
+    )
 
 
-def test_combined_slip_potential_averages_empirical_geomechanics_probability():
+def test_legacy_fsp_lookup_uses_threshold_for_single_retained_point():
+    assert np.allclose(
+        legacy_fsp_probabilities([-4.0, -1.0], [-1.0, 0.0, 2.0]),
+        [0.0, 0.0, 1.0, 1.0],
+    )
+
+
+def test_legacy_fsp_averages_unique_hydro_ecdf_queries_not_raw_samples():
+    geo_pressures = np.array([10.0, 20.0, 30.0, 40.0])
+    hydro_pressures = np.array([5.0, 12.0, 24.0, 45.0])
+
+    # Unique ecdf x [5, 5, 12, 24, 45] → lookups [0, 0, 0, 0.5, 1] → 0.30
+    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.30)
+    assert displayed_legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.30)
+
+
+def test_legacy_fsp_treats_non_finite_hydro_as_zero_psi():
+    geo_pressures = np.array([10.0, 20.0])
+    hydro_pressures = np.array([np.inf, np.nan, 25.0])
+
+    assert np.allclose(_matlab_hydro_ecdf_queries(hydro_pressures), [0.0, 0.0, 25.0])
+    assert np.allclose(legacy_fsp_probabilities(geo_pressures, hydro_pressures), [0.0, 0.0, 1.0])
+    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(1.0 / 3.0)
+    assert displayed_legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.33)
+
+
+def test_legacy_fsp_returns_zero_for_empty_hydro():
+    assert legacy_fsp([10.0, 20.0], []) == 0.0
+    assert displayed_legacy_fsp([10.0, 20.0], []) == 0.0
+    assert legacy_fsp_probabilities([10.0, 20.0], []).size == 0
+
+
+def test_combined_slip_potential_averages_legacy_lookup_probabilities():
     pressure_groups = {
-        "A": pd.Series([5.0, 15.0, 25.0, 45.0]),
+        "A": pd.Series([5.0, 12.0, 24.0, 45.0]),
     }
     geo_groups = {
         "A": np.array([10.0, 20.0, 30.0, 40.0]),
@@ -429,11 +489,11 @@ def test_combined_slip_potential_averages_empirical_geomechanics_probability():
 
     rows, probabilities = _combined_slip_potential_rows(["A"], pressure_groups, geo_groups, 2025)
 
-    assert probabilities["A"] == pytest.approx(0.4375)
+    assert probabilities["A"] == pytest.approx(0.30)
     assert rows[0]["ID"] == "A"
     assert rows[0]["slip_pressure"] == pytest.approx(25.0)
-    assert rows[0]["probability"] == pytest.approx(0.4375)
-    assert rows[0]["Pressure"] == pytest.approx(22.5)
+    assert rows[0]["probability"] == pytest.approx(0.30)
+    assert rows[0]["Pressure"] == pytest.approx(21.5)
     assert rows[0]["Year"] == 2025
 
 
@@ -460,7 +520,7 @@ def test_summary_fsp_returns_empty_frame_without_geomechanics_cdf():
     assert not _step6_has_geomechanics_cdf(pd.DataFrame())
 
 
-def test_summary_fsp_uses_empirical_samples_for_probabilistic_hydrology():
+def test_summary_fsp_uses_legacy_lookup_for_probabilistic_hydrology():
     geo_cdf_df = pd.DataFrame({
         "ID": ["A", "A", "A", "A"],
         "slip_pressure": [10.0, 20.0, 30.0, 40.0],
@@ -469,14 +529,72 @@ def test_summary_fsp_uses_empirical_samples_for_probabilistic_hydrology():
     hydro_df = pd.DataFrame({
         "SimulationID": [1, 2, 3],
         "ID": ["A", "A", "A"],
-        "Pressure": [5.0, 15.0, 45.0],
+        "Pressure": [5.0, 12.0, 45.0],
         "Year": [2032, 2032, 2032],
     })
 
     fsp_df = _calculate_summary_fsp(geo_cdf_df, hydro_df)
 
-    assert fsp_df.loc[0, "FSP"] == pytest.approx(0.42)
+    # Unique ecdf x [5, 5, 12, 45] → lookups [0, 0, 0, 1] → 0.25
+    assert fsp_df.loc[0, "FSP"] == pytest.approx(0.25)
 
+
+def test_step5_step6_and_cdf_graph_use_the_same_displayed_fsp():
+    geo_pressures = np.array([10.0, 20.0, 30.0, 40.0])
+    hydro_pressures = np.array([5.0, 12.0, 24.0, 45.0])
+    expected = displayed_legacy_fsp(geo_pressures, hydro_pressures)
+
+    _, step5_probabilities = _combined_slip_potential_rows(
+        ["A"],
+        {"A": pd.Series(hydro_pressures)},
+        {"A": geo_pressures},
+        2025,
+    )
+    step6_df = _calculate_summary_fsp(
+        pd.DataFrame({
+            "ID": ["A"] * 4,
+            "slip_pressure": geo_pressures,
+            "probability": [0.25, 0.50, 0.75, 1.0],
+        }),
+        pd.DataFrame({
+            "ID": ["A"] * 4,
+            "Pressure": hydro_pressures,
+            "Year": [2025] * 4,
+        }),
+    )
+
+    scientific_path = os.path.join(os.path.dirname(__file__), "..", "src", "graphs", "scientific.py")
+    with open(scientific_path, encoding="utf-8") as scientific_file:
+        scientific_source = scientific_file.read()
+
+    assert expected == pytest.approx(0.30)
+    assert step5_probabilities["A"] == pytest.approx(expected)
+    assert step6_df.loc[0, "FSP"] == pytest.approx(expected)
+    assert "displayed_legacy_fsp" in scientific_source
+    assert "np.searchsorted(geo_sorted" not in scientific_source
+
+
+@pytest.mark.parametrize(
+    ("requested_year", "expected_year", "expected_message"),
+    [
+        (2018, 2020, True),
+        (2024, 2024, False),
+        (2030, 2028, True),
+    ],
+)
+def test_selected_year_is_clamped_to_injection_and_diffusion_window(
+    requested_year, expected_year, expected_message
+):
+    effective_year, start_year, end_year = normalize_year_of_interest(
+        requested_year, date(2020, 1, 1), date(2025, 12, 31)
+    )
+
+    assert (effective_year, start_year, end_year) == (expected_year, 2020, 2028)
+    message = selected_year_message(requested_year, effective_year, start_year, end_year)
+    assert (message is not None) is expected_message
+    if message:
+        assert str(requested_year) in message
+        assert str(expected_year) in message
 
 def test_summary_fault_values_use_only_the_selected_year():
     faults = pd.DataFrame({"FaultID": ["A", "B", "C"]})

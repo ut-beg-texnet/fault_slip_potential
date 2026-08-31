@@ -9,9 +9,8 @@ Each side independently converts the wells CSV, then runs Theis:
    - **monthly:** `SpreadsheetStrings2WellData` (from `support code/`)
    - **annual:** the 2-row `datenumBarrelsPerDay` constructor from `dataentryWells.m`
 
-The two kernels are not given the same pre-built rate series. A preprocessing bug in Python will show up as a rate or pressure mismatch.
 
-Well–fault distances use one shared local Cartesian km grid (not portal haversine) so a fail points at **rate conversion**, not geometry.
+Well–fault distances use one shared local Cartesian km grid.
 
 The entry point is [`run_matlab_python_hydrology_regression.py`](run_matlab_python_hydrology_regression.py).
 
@@ -99,15 +98,6 @@ That uses the default MATLAB code (`reference_old_code`), default MATLAB executa
   --wells-format auto `
   --year 2031 `
   --output-dir C:\path\to\hydrology_regression_output
-```
-
-Monthly with MATLAB’s extrapolate checkbox:
-
-```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_hydrology_regression.py `
-  --wells C:\path\to\monthly_wells.csv `
-  --wells-format monthly_fsp `
-  --extrapolate-injection-rates
 ```
 
 Annual:

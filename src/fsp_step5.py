@@ -23,6 +23,11 @@ from fsp.io.wells import (
     resolve_extrapolate_injection_rates,
 )
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
+from fsp.probabilistic_fsp import (
+    displayed_legacy_fsp,
+    normalize_year_of_interest,
+    selected_year_message,
+)
 from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 from graphs.leaflet_map import save_fault_results_map_artifact
 from graphs.scientific import (
@@ -91,30 +96,16 @@ def _has_geomechanics_cdf(geo_cdf_df: pd.DataFrame) -> bool:
     )
 
 
-def _empirical_geomechanics_probabilities(geo_pressures, hydro_pressures) -> np.ndarray:
-    """Evaluate P(geomechanics slip pressure <= hydrology pressure)."""
-    geo = np.asarray(geo_pressures, dtype=float)
-    hydro = np.asarray(hydro_pressures, dtype=float)
-    geo = np.sort(geo[np.isfinite(geo)])
-    hydro = hydro[np.isfinite(hydro)]
-    if len(hydro) == 0:
-        return np.array([], dtype=float)
-    if len(geo) == 0:
-        return np.zeros(len(hydro), dtype=float)
-    return np.searchsorted(geo, hydro, side="right").astype(float) / float(len(geo))
-
-
 def _combined_slip_potential_rows(fault_ids, pressure_groups: dict, geo_groups: dict, year_of_interest: int):
     rows = []
     probabilities = {}
     for fid in fault_ids:
         fid = str(fid)
         fp = np.asarray(pressure_groups.get(fid, pd.Series(dtype=float)), dtype=float)
-        fp = fp[np.isfinite(fp)]
         geo_pressures = np.asarray(geo_groups.get(fid, np.array([], dtype=float)), dtype=float)
-        fsp_values = _empirical_geomechanics_probabilities(geo_pressures, fp)
-        probability = float(fsp_values.mean()) if len(fsp_values) else 0.0
-        mean_pressure = float(fp.mean()) if len(fp) else 0.0
+        probability = displayed_legacy_fsp(geo_pressures, fp)
+        finite_fp = fp[np.isfinite(fp)]
+        mean_pressure = float(finite_fp.mean()) if len(finite_fp) else 0.0
         representative_slip_pressure = (
             float(np.mean(geo_pressures[np.isfinite(geo_pressures)]))
             if np.any(np.isfinite(geo_pressures))
@@ -164,7 +155,7 @@ def main():
         }
 
         n_iters = int(_p(STEP, "hydro_mc_iterations") or 750)
-        year_of_interest = int(_p(STEP, "year_of_interest") or _p(STEP_HYDRO, "year_of_interest") or date.today().year)
+        requested_year = int(_p(STEP, "year_of_interest") or _p(STEP_HYDRO, "year_of_interest") or date.today().year)
         hydro_model_type = str(_p(STEP, "hydro_model_type") or "probabilistic").lower()
         model_run = 0 if "det" in hydro_model_type else 1
         helper.setParamValueWithStepIndexAndParamName(STEP, "model_run", model_run)
@@ -197,8 +188,12 @@ def main():
         inj_df = load_injection_wells(inj_path, inj_type)
 
         inj_start_date, inj_end_date = get_date_bounds(inj_df)
-        start_year = inj_start_date.year
-        end_year = min(inj_end_date.year + 3, year_of_interest)
+        year_of_interest, start_year, end_year = normalize_year_of_interest(
+            requested_year, inj_start_date, inj_end_date
+        )
+        year_message = selected_year_message(requested_year, year_of_interest, start_year, end_year)
+        if year_message:
+            helper.addMessageWithStepIndex(STEP, year_message, 1)
         years_to_analyze = list(range(start_year, end_year + 1))
 
         # Pre-process wells (keep raw data for per-year cutoff)

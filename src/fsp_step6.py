@@ -24,6 +24,11 @@ from fsp.io.wells import (
 )
 from fsp.monte_carlo.hydrology_mc import run_hydrology_mc_time_series
 from fsp.models.hydrology import HydrologyParams
+from fsp.probabilistic_fsp import (
+    displayed_legacy_fsp,
+    normalize_year_of_interest,
+    selected_year_message,
+)
 from fsp.hydrology.pressure_field import (
     pfieldcalc_all_rates_for_distances,
     well_fault_distances_m,
@@ -59,36 +64,6 @@ def _get_injection_path(helper):
     raise ValueError("No injection wells dataset provided for summary step.")
 
 
-def _interpolate_cdf(pressures, probs, target_p: float) -> float:
-    """Linear interpolation on a CDF at target_p."""
-    if len(pressures) == 0:
-        return 0.0
-    if target_p <= pressures[0]:
-        return float(probs[0])
-    if target_p >= pressures[-1]:
-        return float(probs[-1])
-    i = np.searchsorted(pressures, target_p)
-    p0, p1 = pressures[i - 1], pressures[i]
-    q0, q1 = probs[i - 1], probs[i]
-    if p1 == p0:
-        return float(q0)
-    t = (target_p - p0) / (p1 - p0)
-    return float(q0 + t * (q1 - q0))
-
-
-def _empirical_geomechanics_probabilities(geo_pressures, hydro_pressures) -> np.ndarray:
-    """Evaluate P(geomechanics slip pressure <= hydrology pressure)."""
-    geo = np.asarray(geo_pressures, dtype=float)
-    hydro = np.asarray(hydro_pressures, dtype=float)
-    geo = np.sort(geo[np.isfinite(geo)])
-    hydro = hydro[np.isfinite(hydro)]
-    if len(hydro) == 0:
-        return np.array([], dtype=float)
-    if len(geo) == 0:
-        return np.zeros(len(hydro), dtype=float)
-    return np.searchsorted(geo, hydro, side="right").astype(float) / float(len(geo))
-
-
 def _calculate_fsp(geo_cdf_df: pd.DataFrame,
                    hydro_df: pd.DataFrame) -> pd.DataFrame:
     """Compute FSP per fault per year.
@@ -120,16 +95,9 @@ def _calculate_fsp(geo_cdf_df: pd.DataFrame,
             fault_pressures = fault_pressures_df["Pressure"].values
             if len(fault_pressures) == 0:
                 continue
-            mean_p = float(np.mean(fault_pressures))
-
             geo_p = fault_geo["slip_pressure"].values.astype(float)
-            if "SimulationID" in fault_pressures_df.columns:
-                fsp_values = _empirical_geomechanics_probabilities(geo_p, fault_pressures)
-                fsp = float(fsp_values.mean()) if len(fsp_values) else 0.0
-            else:
-                geo_prob = fault_geo["probability"].values.astype(float)
-                fsp = _interpolate_cdf(geo_p, geo_prob, mean_p)
-            rows.append({"ID": str(fid), "Year": int(yr), "FSP": round(fsp, 2), "epoch_time": epoch})
+            fsp = displayed_legacy_fsp(geo_p, fault_pressures)
+            rows.append({"ID": str(fid), "Year": int(yr), "FSP": fsp, "epoch_time": epoch})
 
     return pd.DataFrame(rows)
 
@@ -224,7 +192,7 @@ def main():
         def _p(step, name):
             return helper.getParameterValueWithStepIndexAndParamName(step, name)
 
-        year_of_interest = int(_p(STEP, "year_of_interest_summary") or date.today().year)
+        requested_year = int(_p(STEP, "year_of_interest_summary") or date.today().year)
         model_run = _p(STEP, "model_run_summary")
         if model_run is None:
             model_run = 1
@@ -236,14 +204,13 @@ def main():
         inj_df = inj_df_raw
 
         inj_start_date, inj_end_date = get_date_bounds(inj_df)
-        start_year = inj_start_date.year
-        end_year = inj_end_date.year + 3   # extra years for pressure diffusion
+        year_of_interest, start_year, end_year = normalize_year_of_interest(
+            requested_year, inj_start_date, inj_end_date
+        )
+        year_message = selected_year_message(requested_year, year_of_interest, start_year, end_year)
+        if year_message:
+            helper.addMessageWithStepIndex(STEP, year_message, 1)
         years_to_analyze = list(range(start_year, end_year + 1))
-
-        if year_of_interest < start_year:
-            year_of_interest = start_year
-        elif year_of_interest > end_year:
-            year_of_interest = end_year
 
         cutoff_date = date(year_of_interest - 1, 12, 31)
         well_info = preprocess_well_data(inj_df, inj_type)
@@ -344,7 +311,6 @@ def main():
             report_progress("Calculating fault slip potential")
             fsp_source_df = pressure_df if model_run == 0 else pressure_samples_df
             fsp_df = _calculate_fsp(geo_cdf_df, fsp_source_df)
-            fsp_df["FSP"] = fsp_df["FSP"].round(2)
         else:
             helper.addMessageWithStepIndex(
                 STEP,

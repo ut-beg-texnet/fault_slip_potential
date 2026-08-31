@@ -572,6 +572,7 @@ class TestScientificGraphArtifacts:
         assert "showlegend: false" in html
         assert "const selectedSeriesIds = new Set(defaultId ? [defaultId]" in html
         assert "FSP " in html
+        assert '"fsp":0.33' in html
         assert "grid-template-areas:" in html
         assert '"plot selector"' in html
         assert '"summary selector"' not in html
