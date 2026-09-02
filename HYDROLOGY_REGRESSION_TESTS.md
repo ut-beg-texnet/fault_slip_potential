@@ -1,6 +1,6 @@
 # Hydrology regression tests (MATLAB vs Python)
 
-This is a **parity check** for FSP hydrology, including injection-well preprocessing.
+This is a **parity check** for FSP hydrology, including injection-well preprocessing. For an uploaded external hydrologic-model CSV (no Theis), see [`EXTERNAL_HYDROLOGY_REGRESSION_TESTS.md`](EXTERNAL_HYDROLOGY_REGRESSION_TESTS.md).
 
 Each side independently converts the wells CSV, then runs Theis:
 

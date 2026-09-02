@@ -15,6 +15,7 @@ import pandas as pd
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.io.faults import load_faults_csv, load_faults_shapefile, generate_randomized_faults
 from fsp.io.coords import latlon_to_wkt
+from fsp.io.external_hydrology import is_truthy, load_external_hydrology, to_portal_columns
 from fsp.io.wells import load_injection_wells, injection_rate_data_to_d3_bbl_day
 from graphs.injection_rate import save_injection_rate_graph_artifact
 from progress import report_progress
@@ -49,6 +50,12 @@ def _get_injection_path(helper):
             return path, dtype
     raise ValueError("No injection wells dataset provided.")
 
+
+
+def _external_mode_enabled(helper) -> bool:
+    return is_truthy(helper.getParameterValueWithStepIndexAndParamName(
+        STEP, "use_external_hydrologic_model"
+    ))
 
 def _get_fault_path(helper, randomize: bool):
     """Return (path_or_df, fault_type) for faults."""
@@ -123,6 +130,26 @@ def main():
         helper.saveDataFrameAsParameterWithStepIndexAndParamName(STEP, "faults_model_inputs_output", faults_df)
 
         # ---- Injection wells ----
+        if _external_mode_enabled(helper):
+            report_progress("Loading external hydrologic model...")
+            external_path = helper.getOptionalDatasetFilePathWithStepIndexAndParamName(
+                STEP, "external_hydrology_model"
+            )
+            if not external_path:
+                raise ValueError("Use External Hydrologic Model is selected, but no external hydrologic model CSV was provided.")
+            external_model = load_external_hydrology(external_path)
+            helper.saveDataFrameAsParameterWithStepIndexAndParamName(
+                STEP, "external_hydrology_model_output", to_portal_columns(external_model)
+            )
+            helper.addMessageWithStepIndex(
+                STEP,
+                "Using the external deterministic hydrologic model. Injection wells and internal hydrology parameters will be ignored.",
+                0,
+            )
+            helper.setSuccessForStepIndex(STEP, True)
+            helper.writeResultsFile()
+            return
+
         report_progress("Loading injection wells")
         inj_path, inj_type = _get_injection_path(helper)
 

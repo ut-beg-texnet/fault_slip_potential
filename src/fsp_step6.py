@@ -29,6 +29,13 @@ from fsp.probabilistic_fsp import (
     normalize_year_of_interest,
     selected_year_message,
 )
+from fsp.io.external_hydrology import (
+    available_years,
+    external_year_message,
+    load_external_hydrology_from_step1,
+    pressure_rows_for_faults,
+    resolve_external_year,
+)
 from fsp.hydrology.pressure_field import (
     pfieldcalc_all_rates_for_distances,
     well_fault_distances_m,
@@ -191,6 +198,70 @@ def _run_deterministic_hydro_time_series(STRho, well_data_list, fault_df, years_
     return pd.DataFrame(rows)
 
 
+def _run_external_summary(helper, requested_year: int) -> bool:
+    """Build the summary from every supplied imported-pressure snapshot."""
+    model = load_external_hydrology_from_step1(helper)
+    if model is None:
+        return False
+
+    fault_path = helper.getDatasetFilePathWithStepIndexAndParamName(0, "faults_model_inputs_output")
+    if not fault_path:
+        fault_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults")
+    fault_df = (
+        pd.read_csv(fault_path, dtype={"FaultID": str})
+        if fault_path else pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)"])
+    )
+    if fault_df.empty:
+        helper.addMessageWithStepIndex(STEP, "No fault dataset was provided, so external summary outputs were skipped.", 1)
+        return True
+
+    year_of_interest = resolve_external_year(model, requested_year)
+    year_message = external_year_message(requested_year, year_of_interest)
+    if year_message:
+        helper.addMessageWithStepIndex(STEP, year_message, 1)
+    report_progress("Interpolating imported pressure over supplied years")
+    pressure_df = pressure_rows_for_faults(model, fault_df, available_years(model))
+    pressure_df["epoch_time"] = pressure_df["Year"].apply(
+        lambda yr: float((date(int(yr), 1, 1) - date(1970, 1, 1)).days * 86400.0 * 1000.0)
+    )
+
+    geo_cdf_path = helper.getOptionalDatasetFilePathWithStepIndexAndParamName(
+        STEP, "prob_geomechanics_cdf_graph_data_summary"
+    )
+    geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str}) if geo_cdf_path else pd.DataFrame()
+    has_geomechanics_cdf = _has_geomechanics_cdf(geo_cdf_df)
+    if has_geomechanics_cdf:
+        report_progress("Calculating imported-pressure fault slip potential")
+        fsp_df = _calculate_fsp(geo_cdf_df, pressure_df)
+    else:
+        helper.addMessageWithStepIndex(
+            STEP, "Geomechanics steps were skipped, so imported-pressure FSP values were not generated.", 1
+        )
+        fsp_df = pd.DataFrame(columns=["ID", "Year", "FSP", "epoch_time"])
+
+    fault_summary = _fault_summary_for_year(
+        fault_df, fsp_df, pressure_df, year_of_interest, include_fsp=has_geomechanics_cdf
+    )
+    save_summary_artifacts(
+        helper, STEP, fsp_df, pressure_df, year_of_interest=year_of_interest,
+        include_fsp=has_geomechanics_cdf,
+    )
+    map_config = _summary_map_configuration(has_geomechanics_cdf)
+    save_fault_results_map_artifact(
+        helper, STEP, fault_summary, artifact_key="fsp-summary-map",
+        title=map_config["title"], caption=map_config["caption"], display_order=62,
+        result_fields=map_config["result_fields"], color="#059669",
+        value_column=map_config["value_column"], legend_title=map_config["legend_title"],
+        color_scale=map_config["color_scale"], value_min_default=map_config["value_min_default"],
+        value_max_default=map_config["value_max_default"],
+        field_labels=_summary_map_field_labels(year_of_interest),
+    )
+    helper.addMessageWithStepIndex(
+        STEP, "External hydrologic model selected; summary uses only the supplied pressure years.", 0
+    )
+    return True
+
+
 def main():
     scratch_path = sys.argv[1]
     helper = TexNetWebToolLaunchHelper(scratch_path)
@@ -200,6 +271,11 @@ def main():
             return helper.getParameterValueWithStepIndexAndParamName(step, name)
 
         requested_year = int(_p(STEP, "year_of_interest_summary") or date.today().year)
+        if _run_external_summary(helper, requested_year):
+            helper.setSuccessForStepIndex(STEP, True)
+            helper.writeResultsFile()
+            return
+
         model_run = _p(STEP, "model_run_summary")
         if model_run is None:
             model_run = 1

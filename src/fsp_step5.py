@@ -28,6 +28,11 @@ from fsp.probabilistic_fsp import (
     normalize_year_of_interest,
     selected_year_message,
 )
+from fsp.io.external_hydrology import (
+    external_year_message,
+    interpolate_fault_pressures,
+    load_external_hydrology_from_step1,
+)
 from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 from graphs.leaflet_map import save_fault_results_map_artifact
 from graphs.scientific import (
@@ -122,6 +127,89 @@ def _combined_slip_potential_rows(fault_ids, pressure_groups: dict, geo_groups: 
     return rows, probabilities
 
 
+def _run_external_hydrology(helper, requested_year: int) -> bool:
+    """Render deterministic imported pressures instead of Monte Carlo results."""
+    model = load_external_hydrology_from_step1(helper)
+    if model is None:
+        return False
+
+    faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(0, "faults_model_inputs_output")
+    if not faults_path:
+        faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults_model_inputs_output")
+    if not faults_path:
+        faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP_HYDRO, "faults")
+    fault_df = (
+        pd.read_csv(faults_path, dtype={"FaultID": str})
+        if faults_path else pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)"])
+    )
+    if fault_df.empty:
+        helper.addMessageWithStepIndex(STEP, "No fault dataset was provided, so external hydrology outputs were skipped.", 1)
+        return True
+
+    report_progress("Interpolating imported pressure at faults")
+    year_of_interest, pressures = interpolate_fault_pressures(
+        model, requested_year, fault_df["Latitude(WGS84)"], fault_df["Longitude(WGS84)"]
+    )
+    year_message = external_year_message(requested_year, year_of_interest)
+    if year_message:
+        helper.addMessageWithStepIndex(STEP, year_message, 1)
+
+    cdf_df = pd.concat([
+        pd.DataFrame({
+            "ID": [str(fid), str(fid)],
+            "slip_pressure": [float(pressure), float(pressure)],
+            "probability": [1.0, 0.0],
+        })
+        for fid, pressure in zip(fault_df["FaultID"], pressures)
+    ], ignore_index=True)
+    geo_cdf_path = helper.getOptionalDatasetFilePathWithStepIndexAndParamName(
+        STEP, "prob_geomechanics_cdf_graph_data_prob_hydro"
+    )
+    geo_cdf_df = pd.read_csv(geo_cdf_path, dtype={"ID": str}) if geo_cdf_path else pd.DataFrame()
+    has_geomechanics_cdf = _has_geomechanics_cdf(geo_cdf_df)
+    if has_geomechanics_cdf:
+        save_probabilistic_hydrology_cdf_artifact(
+            helper, STEP, cdf_df, geo_cdf_df,
+            artifact_key="fsp-probabilistic-hydrology-cdf",
+            title=f"Probability of Pressure Exceedance for {year_of_interest}", display_order=50,
+        )
+    else:
+        save_cdf_artifact(
+            helper, STEP, cdf_df, artifact_key="fsp-probabilistic-hydrology-cdf",
+            title=f"Probability of Pressure Exceedance for {year_of_interest}",
+            pressure_label="Pressure Change (psi)", probability_label="Exceedance Probability",
+            display_order=50, show_color_tab=False,
+        )
+
+    faults_with_fsp = fault_df.copy()
+    pressure_groups = {str(fid): pd.Series([float(p)]) for fid, p in zip(fault_df["FaultID"], pressures)}
+    if has_geomechanics_cdf:
+        geo_groups = _geomechanics_pressure_samples_by_fault(geo_cdf_df)
+        _, probabilities = _combined_slip_potential_rows(
+            faults_with_fsp["FaultID"].astype(str), pressure_groups, geo_groups, year_of_interest
+        )
+        faults_with_fsp["prob_hydro_fsp"] = faults_with_fsp["FaultID"].astype(str).map(probabilities).fillna(0.0)
+        result_fields, value_column = ["prob_hydro_fsp"], "prob_hydro_fsp"
+        map_title = f"Imported Hydrology FSP Map for {year_of_interest}"
+        map_caption, legend_title, color_scale = "Fault slip probability using imported pressure.", "Imported Hydrology FSP", FSP_COLOR_SCALE
+        value_min, value_max = 0.0, 1.0
+    else:
+        helper.addMessageWithStepIndex(STEP, "Geomechanics steps were skipped, so imported-pressure FSP values were not generated.", 1)
+        faults_with_fsp["prob_hydro_pressure"] = pressures
+        result_fields, value_column = ["prob_hydro_pressure"], "prob_hydro_pressure"
+        map_title = f"Imported Hydrology Pressure Map for {year_of_interest}"
+        map_caption, legend_title, color_scale = "Fault pressures interpolated from the external hydrologic model.", "Imported Pressure (psi)", SLIP_PRESSURE_COLOR_SCALE
+        value_min, value_max = None, None
+    save_fault_results_map_artifact(
+        helper, STEP, faults_with_fsp, artifact_key="fsp-probabilistic-hydrology-map",
+        title=map_title, caption=map_caption, display_order=54, result_fields=result_fields,
+        color="#be123c", value_column=value_column, legend_title=legend_title,
+        color_scale=color_scale, value_min_default=value_min, value_max_default=value_max,
+    )
+    helper.addMessageWithStepIndex(STEP, "External hydrologic model selected; Monte Carlo hydrology was skipped.", 0)
+    return True
+
+
 def main():
     scratch_path = sys.argv[1]
     helper = TexNetWebToolLaunchHelper(scratch_path)
@@ -129,6 +217,13 @@ def main():
     try:
         def _p(step, name):
             return helper.getParameterValueWithStepIndexAndParamName(step, name)
+
+        requested_year = int(_p(STEP, "year_of_interest") or _p(STEP_HYDRO, "year_of_interest") or date.today().year)
+        if _run_external_hydrology(helper, requested_year):
+            helper.setParamValueWithStepIndexAndParamName(STEP, "model_run", 0)
+            helper.setSuccessForStepIndex(STEP, True)
+            helper.writeResultsFile()
+            return
 
         # ---- Hydrology base parameters (from Step 4) ----
         h_ft = float(_p(STEP_HYDRO, "aquifer_thickness_ft"))
@@ -155,7 +250,6 @@ def main():
         }
 
         n_iters = int(_p(STEP, "hydro_mc_iterations") or 750)
-        requested_year = int(_p(STEP, "year_of_interest") or _p(STEP_HYDRO, "year_of_interest") or date.today().year)
         hydro_model_type = str(_p(STEP, "hydro_model_type") or "probabilistic").lower()
         model_run = 0 if "det" in hydro_model_type else 1
         helper.setParamValueWithStepIndexAndParamName(STEP, "model_run", model_run)

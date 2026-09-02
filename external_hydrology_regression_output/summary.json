@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "max_relative_error": 6.557826948018575e-16,
+  "nan_count": 0,
+  "tolerance": {
+    "relative_at_least_1_psi": 0.01,
+    "absolute_below_1_psi": 0.01
+  },
+  "inputs": {
+    "faults": "C:\\texnetwebtools\\tools\\fsp_python\\comparison_datasets\\python_portal_faults.csv",
+    "model": "C:\\texnetwebtools\\tools\\fsp_python\\comparison_datasets\\external_hydrology_model_realistic_test_portal.csv",
+    "matlab_code": "C:\\texnetwebtools\\tools\\fsp_python\\reference_old_code",
+    "years": [
+      2020,
+      2023,
+      2026
+    ],
+    "n_faults": 3,
+    "projection_origin_wgs84_by_year": [
+      {
+        "year": 2020,
+        "latitude": 31.235,
+        "longitude": -103.691
+      },
+      {
+        "year": 2023,
+        "latitude": 31.235,
+        "longitude": -103.691
+      },
+      {
+        "year": 2026,
+        "latitude": 31.235,
+        "longitude": -103.691
+      }
+    ]
+  },
+  "outputs": {
+    "python_pressure_csv": "C:\\texnetwebtools\\tools\\fsp_python\\external_hydrology_regression_output\\python_fault_pressure.csv",
+    "matlab_pressure_csv": "C:\\texnetwebtools\\tools\\fsp_python\\external_hydrology_regression_output\\matlab_fault_pressure.csv",
+    "matlab_model_csv": "C:\\texnetwebtools\\tools\\fsp_python\\external_hydrology_regression_output\\matlab_model_input.csv",
+    "matlab_faults_xy_csv": "C:\\texnetwebtools\\tools\\fsp_python\\external_hydrology_regression_output\\matlab_faults_xy.csv",
+    "fault_csv": "C:\\texnetwebtools\\tools\\fsp_python\\external_hydrology_regression_output\\fault_pressure_comparison.csv",
+    "plot_html": "C:\\texnetwebtools\\tools\\fsp_python\\external_hydrology_regression_output\\fault_pressure_parity.html"
+  }
+}

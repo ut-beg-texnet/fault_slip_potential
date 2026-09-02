@@ -22,6 +22,13 @@ from fsp.hydrology.pressure_field import (
 )
 from fsp.hydrology.theis import pressureScenario_Rall
 from fsp.io.coords import create_projected_spatial_grid, haversine_distance, reformat_pressure_grid_to_heatmap
+from fsp.io.external_hydrology import (
+    external_year_message,
+    interpolate_fault_pressures,
+    interpolated_grid,
+    load_external_hydrology_from_step1,
+)
+
 from fsp.io.wells import (
     load_injection_wells, preprocess_well_data, normalize_wells_to_well_data, get_date_bounds,
     resolve_extrapolate_injection_rates,
@@ -97,11 +104,85 @@ def _get_injection_path(helper):
     raise ValueError("No injection wells dataset provided.")
 
 
+def _save_imported_pressure_mohr_overlay(helper, fault_df, pressures, year_of_interest: int) -> None:
+    """Reuse the hydrology Mohr overlay for deterministic imported pressures."""
+    if not {"Strike", "Dip", "FaultID"}.issubset(fault_df.columns):
+        return
+    stress_inputs = {
+        "reference_depth": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "reference_depth"),
+        "vertical_stress": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "vertical_stress"),
+        "min_horizontal_stress": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "min_horizontal_stress"),
+        "max_horizontal_stress": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "max_horizontal_stress"),
+        "pore_pressure": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "pore_pressure"),
+        "max_stress_azimuth": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "max_stress_azimuth"),
+        "aphi_value": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "aphi_value"),
+        "friction_coefficient": helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "friction_coefficient"),
+    }
+    stress_model_type = helper.getParameterValueWithStepIndexAndParamName(STEP_GEO, "stress_model_type") or "gradients"
+    if not _has_required_geomechanics_inputs(stress_inputs, stress_model_type):
+        return
+    friction = float(stress_inputs["friction_coefficient"])
+    stress_state, p0 = calculate_absolute_stresses(stress_inputs, friction, stress_model_type)
+    sV, sh, sH = stress_state.principal_stresses
+    results = [
+        analyze_fault_hydro(float(row["Strike"]), float(row["Dip"]), friction, stress_state, p0, float(pressure))
+        for (_, row), pressure in zip(fault_df.iterrows(), pressures)
+    ]
+    regime = "Normal" if abs(sV) >= abs(sH) >= abs(sh) else "Reverse" if abs(sH) >= abs(sh) >= abs(sV) else "Strike-Slip"
+    arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(
+        float(sh), float(sH), float(sV),
+        [result["shear_stress"] for result in results],
+        [result["normal_stress"] for result in results],
+        p0, list(np.asarray(pressures, dtype=float)), list(fault_df["Strike"].astype(float)), friction,
+        list(fault_df["FaultID"].astype(str)), [result["slip_pressure"] for result in results],
+    )
+    save_mohr_diagram_graph_artifact(
+        helper, arcs_df, slip_df, fault_df_mohr, step_index=STEP,
+        artifact_key="fsp-deterministic-hydrology-mohr-diagram",
+        title=f"Hydrology Mohr Diagram for {year_of_interest}", display_order=42, stress_regime=regime,
+    )
+
+
 def main():
     scratch_path = sys.argv[1]
     helper = TexNetWebToolLaunchHelper(scratch_path)
 
     try:
+        external_model = load_external_hydrology_from_step1(helper)
+        if external_model is not None:
+            requested_year = int(helper.getParameterValueWithStepIndexAndParamName(STEP, "year_of_interest") or date.today().year)
+            faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults")
+            fault_df = (pd.read_csv(faults_path, dtype={"FaultID": str}) if faults_path
+                        else pd.DataFrame(columns=["FaultID", "Latitude(WGS84)", "Longitude(WGS84)"]))
+            if fault_df.empty:
+                helper.addMessageWithStepIndex(STEP, "No fault dataset was provided, so imported pressure results were skipped.", 1)
+                helper.setSuccessForStepIndex(STEP, True)
+                helper.writeResultsFile()
+                return
+            report_progress("Interpolating external hydrologic model at faults")
+            year_of_interest, dp_faults = interpolate_fault_pressures(
+                external_model, requested_year,
+                fault_df["Latitude(WGS84)"].to_numpy(dtype=float),
+                fault_df["Longitude(WGS84)"].to_numpy(dtype=float),
+            )
+            year_message = external_year_message(requested_year, year_of_interest)
+            if year_message:
+                helper.addMessageWithStepIndex(STEP, year_message, 1)
+            hydro_result_df = fault_df.copy()
+            hydro_result_df["pressure_psi"] = dp_faults
+            hydro_result_df["year"] = year_of_interest
+            save_direct_hydrology_pressure_map_artifact(
+                helper, STEP, interpolated_grid(external_model, year_of_interest), hydro_result_df,
+                pd.DataFrame(), artifact_key="fsp-deterministic-hydrology-map",
+                title=f"Imported Hydrology Pressure Map for {year_of_interest}",
+                caption="Interpolated external hydrologic-model pressure change.", display_order=41,
+            )
+            _save_imported_pressure_mohr_overlay(helper, fault_df, dp_faults, year_of_interest)
+            helper.addMessageWithStepIndex(STEP, "External deterministic hydrologic model used; Theis and radial-flow calculations were skipped.", 0)
+            helper.setSuccessForStepIndex(STEP, True)
+            helper.writeResultsFile()
+            return
+
         # ---- Aquifer parameters ----
         def _p(name):
             return helper.getParameterValueWithStepIndexAndParamName(STEP, name)
