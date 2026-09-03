@@ -554,6 +554,7 @@ def test_mohr_diagram_labels_circles_by_stress_regime(tmp_path):
     assert "mohr-controls" in html_text
     assert 'id="mohr-min-psi" type="number" step="any" value="0.0"' in html_text
     assert "border-radius: 6px" in html_text
+    assert "mohr-fault-selector" not in html_text
 
 
 def test_hydrology_mohr_hover_separates_applied_pressure_from_slip_pressure(tmp_path):
@@ -590,6 +591,85 @@ def test_hydrology_mohr_hover_separates_applied_pressure_from_slip_pressure(tmp_
     assert "1,770.00" in html_text
     assert "4,200.00" in html_text
     assert "Delta PP to slip: 1,770.00" not in html_text
+    assert "mohr-fault-selector" not in html_text
+
+
+def test_hydrology_mohr_multi_fault_includes_selector(tmp_path):
+    helper = DummyHelper(tmp_path)
+    helper.origArgsData["SessionState"]["StepState"] = [{"Messages": []} for _ in range(4)]
+    arcs_df = pd.DataFrame({
+        "id": ["circle1", "circle1", "circle1", "circle1", "friction_line", "friction_line"],
+        "fault_id": ["fault-a", "fault-a", "fault-b", "fault-b", None, None],
+        "x": [0.0, 10.0, 1.0, 11.0, 0.0, 10.0],
+        "y": [0.0, 5.0, 0.5, 5.5, 0.0, 6.0],
+    })
+    fault_df = pd.DataFrame({
+        "id": ["fault-a", "fault-b"],
+        "x": [6485.0, 5120.0],
+        "y": [620.0, 410.0],
+        "dp": [1770.0, 900.0],
+        "slip_pressure": [4200.0, 3100.0],
+    })
+    slip_df = pd.DataFrame({
+        "id": ["fault-a", "fault-b"],
+        "dp": [1770.0, 900.0],
+        "slip_pressure": [4200.0, 3100.0],
+    })
+
+    output_path = save_mohr_diagram_graph_artifact(
+        helper,
+        arcs_df,
+        slip_df,
+        fault_df,
+        step_index=3,
+        stress_regime="strike-slip",
+    )
+
+    assert output_path is not None
+    html_text = open(output_path, encoding="utf-8").read()
+    assert "mohr-fault-selector" in html_text
+    assert "Show All" in html_text
+    assert "Hide All" in html_text
+    assert 'id="mohr-fault-filter"' in html_text
+    assert "Filter faults" in html_text
+    assert "fault-a" in html_text
+    assert "fault-b" in html_text
+    assert '"fault_id"' in html_text or "fault_id" in html_text
+    assert "legendgroup" in html_text
+    assert 'id="mohr-min-psi"' in html_text
+    assert "mohr-show-all" in html_text
+    assert "mohr-hide-all" in html_text
+
+
+def test_geomechanics_mohr_with_multiple_faults_has_no_selector(tmp_path):
+    helper = DummyHelper(tmp_path)
+    helper.origArgsData["SessionState"]["StepState"] = [{"Messages": []} for _ in range(2)]
+    arcs_df = pd.DataFrame({
+        "id": ["circle1", "circle1", "friction_line", "friction_line"],
+        "x": [0.0, 10.0, 0.0, 10.0],
+        "y": [0.0, 5.0, 0.0, 6.0],
+    })
+    fault_df = pd.DataFrame({
+        "id": ["fault-1", "fault-2"],
+        "x": [5.0, 6.0],
+        "y": [2.5, 3.0],
+        "slip_pressure": [100.0, 80.0],
+    })
+    slip_df = pd.DataFrame({"id": ["fault-1", "fault-2"], "slip_pressure": [100.0, 80.0]})
+
+    output_path = save_mohr_diagram_graph_artifact(
+        helper,
+        arcs_df,
+        slip_df,
+        fault_df,
+        step_index=1,
+        stress_regime="normal",
+    )
+
+    assert output_path is not None
+    html_text = open(output_path, encoding="utf-8").read()
+    assert "mohr-fault-selector" not in html_text
+    assert "Show All" not in html_text
 def test_pressure_raster_masks_low_pressure_values():
     rgba, min_value, max_value = _pressure_grid_to_rgba(
         [[0.0, 0.5], [2.0, 100.0]],
