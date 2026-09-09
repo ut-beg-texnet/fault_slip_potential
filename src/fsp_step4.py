@@ -267,8 +267,8 @@ def main():
             grid_lats,
             grid_lons,
             n=150,
-            margin_fraction=0.3,
-            min_margin_km=1.0,
+            margin_fraction=0.5,
+            min_margin_km=2.0,
         )
 
         per_well_grid_rows = []

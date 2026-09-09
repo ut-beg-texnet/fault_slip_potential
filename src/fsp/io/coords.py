@@ -45,7 +45,7 @@ def create_spatial_grid(lat_min, lat_max, lon_min, lon_max, n=50):
     return lat_grid, lon_grid
 
 
-def create_projected_spatial_grid(latitudes, longitudes, n=150, margin_fraction=0.3, min_margin_km=1.0):
+def create_projected_spatial_grid(latitudes, longitudes, n=150, margin_fraction=0.5, min_margin_km=2.0):
     """Create an approximately uniform local ENU grid and return lat/lon nodes.
 
     The pressure calculations operate on distances, so a grid that is uniform in
