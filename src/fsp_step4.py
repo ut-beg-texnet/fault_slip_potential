@@ -366,6 +366,7 @@ def main():
             title=f"Hydrology Pressure Map for {year_of_interest}",
             caption="Interactive hydrology pressure map with selected-well pressure grid summation.",
             display_order=41,
+            show_grid_extent=True,
         )
 
         # ---- Optional updated Mohr diagram with hydro pressure ----

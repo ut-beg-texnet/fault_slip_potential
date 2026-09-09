@@ -145,13 +145,63 @@ def _well_payload(well_df: pd.DataFrame):
     return rows
 
 
-def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: list) -> str:
+def _hydrology_map_html(
+    title: str,
+    grid_payload: dict,
+    faults: list,
+    wells: list,
+    show_grid_extent: bool = False,
+) -> str:
+    """Build the standalone Leaflet hydrology map HTML.
+
+    When ``show_grid_extent`` is true (Theis path), draw a black rectangle around
+    the pressure-evaluation grid and add a matching legend key.
+    """
     title_json = json.dumps(title)
     payload_json = json.dumps(grid_payload)
     faults_json = json.dumps(faults)
     wells_json = json.dumps(wells)
     color_scale_json = json.dumps(PRESSURE_COLOR_SCALE)
     escaped_title = html.escape(title)
+    if show_grid_extent:
+        grid_extent_css = f"""
+    .legend-extent {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid {MODERN_BORDER_COLOR};
+      color: {MODERN_TEXT_COLOR};
+      font-weight: 600;
+    }}
+    .legend-extent-swatch {{
+      width: 22px;
+      height: 0;
+      border-top: 2px dotted #000000;
+      flex-shrink: 0;
+    }}
+"""
+        grid_extent_legend_html = """
+    <div class="legend-extent">
+      <span class="legend-extent-swatch" aria-hidden="true"></span>
+      Pressure evaluation grid
+    </div>"""
+        # Regular string so JS braces are not treated as f-string expressions.
+        grid_extent_js = """
+    gridExtentLayer = L.rectangle(gridPayload.bounds, {
+      color: '#000000',
+      weight: 2,
+      dashArray: '2, 6',
+      fill: false,
+      interactive: false
+    });
+    gridExtentLayer.addTo(map);
+"""
+    else:
+        grid_extent_css = ""
+        grid_extent_legend_html = ""
+        grid_extent_js = ""
     return f"""<!doctype html>
 <html>
 <head>
@@ -350,6 +400,7 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
     .legend .range-row {{
       margin-top: 10px;
     }}
+    {grid_extent_css}
     .title-chip {{
       position: absolute;
       top: 12px;
@@ -430,6 +481,7 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
         <input id="pressure-max" type="number" step="any" oninput="updatePressureOverlay()">
       </label>
     </div>
+    {grid_extent_legend_html}
   </div>
   <script>
     const title = {title_json};
@@ -441,6 +493,7 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
     let selectedFaults = new Set();
     let selectedWellMarkers = new Set();
     let pressureOverlay = null;
+    let gridExtentLayer = null;
     const faultLayers = [];
     const wellMarkerLayers = [];
 
@@ -570,9 +623,13 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       }}
       document.getElementById('legend-min').textContent = rendered.colorRange.minValue.toLocaleString(undefined, {{maximumFractionDigits: 2}});
       document.getElementById('legend-max').textContent = rendered.colorRange.maxValue.toLocaleString(undefined, {{maximumFractionDigits: 2}});
-      if (rendered.maxValue <= 0 || selectedWells.size === 0) return;
+      if (rendered.maxValue <= 0 || selectedWells.size === 0) {{
+        if (gridExtentLayer) gridExtentLayer.bringToFront();
+        return;
+      }}
       pressureOverlay = L.imageOverlay(rendered.url, gridPayload.bounds, {{opacity: 0.76}});
       pressureOverlay.addTo(map);
+      if (gridExtentLayer) gridExtentLayer.bringToFront();
     }}
 
     function populateWellControls() {{
@@ -705,6 +762,7 @@ def _hydrology_map_html(title: str, grid_payload: dict, faults: list, wells: lis
       wellMarkerLayers.push({{key: key, label: String(label), layer: marker}});
     }});
 
+    {grid_extent_js}
     populateWellControls();
     setAllFaults(true);
     setAllWellMarkers(true);
@@ -733,6 +791,7 @@ def save_direct_hydrology_pressure_map_artifact(
     title: str,
     caption: str,
     display_order: int,
+    show_grid_extent: bool = False,
 ):
     prefix = f"{title} map was not generated"
     try:
@@ -742,7 +801,10 @@ def save_direct_hydrology_pressure_map_artifact(
             add_graph_warning(helper, step_index, f"{prefix} because required per-well pressure grid columns are missing.")
             return None
 
-        html_text = _hydrology_map_html(title, grid, _fault_payload(fault_df), _well_payload(well_df))
+        html_text = _hydrology_map_html(
+            title, grid, _fault_payload(fault_df), _well_payload(well_df),
+            show_grid_extent=show_grid_extent,
+        )
         output_path = os.path.join(graph_artifacts_dir(helper), f"{artifact_key}.html")
         with open(output_path, "w", encoding="utf-8") as fh:
             fh.write(html_text)

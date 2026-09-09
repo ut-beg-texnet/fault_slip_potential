@@ -480,6 +480,56 @@ def test_direct_hydrology_map_html_contains_well_filters_and_fault_lines(tmp_pat
     assert "defaultMaxPressure" in html_text
     assert "autoMaxValue > 1000 ? autoMaxValue : 1000" in html_text
     assert "LINESTRING" in html_text
+    assert "L.rectangle" not in html_text
+    assert "Pressure evaluation grid" not in html_text
+
+
+def test_direct_hydrology_map_html_shows_theis_grid_extent_when_enabled(tmp_path):
+    helper = DummyHelper(tmp_path)
+    per_well_grid_df = pd.DataFrame({
+        "WellID": ["well-1", "well-1"],
+        "Latitude": [30.0, 30.1],
+        "Longitude": [-97.0, -97.0],
+        "Pressure_psi": [1.0, 3.0],
+    })
+    faults_df = pd.DataFrame({
+        "FaultID": ["AUS-F01"],
+        "Latitude(WGS84)": [30.05],
+        "Longitude(WGS84)": [-97.02],
+        "Strike": [35.0],
+        "Dip": [60.0],
+        "LengthKm": [2.0],
+        "pressure_psi": [5.0],
+        "year": [2025],
+    })
+    wells_df = pd.DataFrame({
+        "WellID": ["well-1"],
+        "Latitude": [30.0],
+        "Longitude": [-97.0],
+    })
+
+    output_path = save_direct_hydrology_pressure_map_artifact(
+        helper,
+        0,
+        per_well_grid_df,
+        faults_df,
+        wells_df,
+        artifact_key="fsp-deterministic-hydrology-map",
+        title="Hydrology Pressure Map",
+        caption="Interactive hydrology pressure map with selected-well pressure grid summation.",
+        display_order=41,
+        show_grid_extent=True,
+    )
+
+    assert output_path is not None
+    html_text = open(output_path, encoding="utf-8").read()
+    assert "L.rectangle" in html_text
+    assert "color: '#000000'" in html_text
+    assert "dashArray: '2, 6'" in html_text
+    assert "border-top: 2px dotted #000000" in html_text
+    assert "Pressure evaluation grid" in html_text
+    assert "legend-extent-swatch" in html_text
+    assert "gridExtentLayer.bringToFront()" in html_text
 
 
 def test_direct_hydrology_grid_payload_sums_per_well_pressure():
@@ -693,3 +743,4 @@ def test_hydrology_step_does_not_emit_legacy_arcgis_heatmap_parameter():
         step4_source = step4_file.read()
 
     assert "hydrology_heatmap_data_arcgis" not in step4_source
+    assert step4_source.count("show_grid_extent=True") == 1
