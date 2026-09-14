@@ -1,4 +1,6 @@
 """Stereonet HTML graph artifact for deterministic geomechanics."""
+import html
+import json
 import math
 
 import numpy as np
@@ -14,6 +16,8 @@ from graphs.artifacts import (
     MODERN_FONT_FAMILY,
     MODERN_GRID_COLOR,
     MODERN_MUTED_TEXT_COLOR,
+    MODERN_PLOT_BG,
+    MODERN_SHADOW,
     MODERN_TEXT_COLOR,
     SLIP_PRESSURE_COLOR_SCALE,
     add_graph_warning,
@@ -25,6 +29,158 @@ from graphs.artifacts import (
 )
 
 MESSAGE_PREFIX = "Stereonet graph was not generated"
+CURVE_RAKE_COUNT = 361
+SELECTOR_ROW_HEIGHT = 32
+
+# Toolbar + overlay combobox. Injected via extra_head so the dropdown can paint
+# over the plot without growing the shell as fault count changes.
+_STEREONET_SELECTOR_HEAD = f"""
+  <style>
+    .plot-shell {{
+      overflow: visible;
+    }}
+    .plot-shell-content {{
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+    }}
+    .stereonet-toolbar {{
+      position: relative;
+      z-index: 20;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }}
+    .stereonet-fault-picker {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 auto;
+      color: {MODERN_TEXT_COLOR};
+      font-size: 12px;
+    }}
+    .stereonet-combobox {{
+      position: relative;
+      min-width: 0;
+      flex: 1 1 auto;
+      max-width: 420px;
+    }}
+    .stereonet-fault-toggle {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 6px 10px;
+      color: {MODERN_TEXT_COLOR};
+      background: {MODERN_CONTROL_BG};
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }}
+    .stereonet-fault-label {{
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+    .stereonet-fault-menu {{
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      max-height: min(280px, 45vh);
+      overflow: hidden;
+      background: {MODERN_PLOT_BG};
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 8px;
+      box-shadow: {MODERN_SHADOW};
+    }}
+    .stereonet-fault-menu[hidden] {{
+      display: none;
+    }}
+    .stereonet-fault-filter {{
+      flex: 0 0 auto;
+      margin: 8px 8px 6px;
+      width: calc(100% - 16px);
+      box-sizing: border-box;
+      padding: 6px 8px;
+      color: {MODERN_TEXT_COLOR};
+      background: {MODERN_CONTROL_BG};
+      border: 1px solid {MODERN_BORDER_COLOR};
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12px;
+    }}
+    .stereonet-fault-viewport {{
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: 232px;
+      overflow-y: auto;
+    }}
+    .stereonet-fault-list {{
+      position: relative;
+    }}
+    .stereonet-fault-item {{
+      display: block;
+      width: 100%;
+      height: {SELECTOR_ROW_HEIGHT}px;
+      box-sizing: border-box;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      color: {MODERN_TEXT_COLOR};
+      font: inherit;
+      font-size: 12px;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }}
+    .stereonet-fault-item:hover,
+    .stereonet-fault-item[aria-selected="true"] {{
+      background: rgba(148, 163, 184, 0.16);
+    }}
+    .stereonet-fault-empty {{
+      padding: 10px;
+      color: {MODERN_MUTED_TEXT_COLOR};
+      font-size: 12px;
+    }}
+  </style>
+"""
+
+_STEREONET_SELECTOR_SHELL = """
+    <div class="stereonet-toolbar">
+      <label class="stereonet-fault-picker">
+        <span>Fault</span>
+        <div class="stereonet-combobox" id="stereonet-combobox">
+          <button type="button" class="stereonet-fault-toggle" id="stereonet-fault-toggle"
+                  aria-haspopup="listbox" aria-expanded="false" aria-controls="stereonet-fault-menu">
+            <span class="stereonet-fault-label" id="stereonet-fault-label">__DEFAULT_FAULT_LABEL__</span>
+          </button>
+          <div class="stereonet-fault-menu" id="stereonet-fault-menu" hidden>
+            <input type="search" class="stereonet-fault-filter" id="stereonet-fault-filter"
+                   placeholder="Search faults..." aria-label="Search faults" autocomplete="off">
+            <div class="stereonet-fault-viewport" id="stereonet-fault-viewport">
+              <div id="stereonet-fault-spacer">
+                <div class="stereonet-fault-list" id="stereonet-fault-list" role="listbox"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </label>
+    </div>
+"""
 
 
 def fault_normal_projection(strike, dip):
@@ -43,27 +199,6 @@ def projected_curve(strike, dip, rake_count=181):
     rake = np.linspace(0.0, np.pi, int(rake_count))
     plunge = np.arcsin(np.sin(dip_rad) * np.sin(rake))
     trend = strike_rad + np.arctan2(np.cos(dip_rad) * np.sin(rake), np.cos(rake))
-    rho = np.tan(np.pi / 4.0 - plunge / 2.0)
-    theta = trend + np.pi
-    return rho * np.cos(theta), rho * np.sin(theta)
-
-
-def _projected_curves_batch(strikes, dips, rake_count=361):
-    """Vectorised projected curve computation for all faults at once.
-
-    Returns
-    -------
-    all_x, all_y : ndarray of shape (n_faults, rake_count)
-    """
-    strike_rad = (90.0 - np.asarray(strikes, dtype=float)) * np.pi / 180.0  # (n_faults,)
-    dip_rad = np.asarray(dips, dtype=float) * np.pi / 180.0                 # (n_faults,)
-    rake = np.linspace(0.0, np.pi, int(rake_count))                          # (rake_count,)
-    # Broadcast to (n_faults, rake_count)
-    plunge = np.arcsin(np.sin(dip_rad[:, None]) * np.sin(rake[None, :]))
-    trend = strike_rad[:, None] + np.arctan2(
-        np.cos(dip_rad[:, None]) * np.sin(rake[None, :]),
-        np.cos(rake[None, :]),
-    )
     rho = np.tan(np.pi / 4.0 - plunge / 2.0)
     theta = trend + np.pi
     return rho * np.cos(theta), rho * np.sin(theta)
@@ -177,27 +312,47 @@ def _color_for_value(value: float, cmin: float, cmax: float):
     return _rgb_to_hex(stops[-1][1])
 
 
-def _colorbar_marker(cmin: float, cmax: float):
-    return {
-        "size": 0.1,
-        "opacity": 0.0,
-        "color": [cmin, cmax],
-        "cmin": cmin,
-        "cmax": cmax,
-        "colorscale": SLIP_PRESSURE_COLOR_SCALE,
-        "showscale": True,
-        "colorbar": modern_colorbar("Delta PP to slip (PSI)"),
-    }
+def _fault_hover(fault_id, strike, dip, slip) -> str:
+    """Hover HTML for a single selected fault (pole or curve)."""
+    return (
+        f"Fault: {fault_id}<br>"
+        f"Strike: {float(strike):.1f} deg<br>"
+        f"Dip: {float(dip):.1f} deg<br>"
+        f"Delta PP to slip: {float(slip):,.2f} PSI"
+    )
 
 
-def _stereonet_controls_script(cmin: float, cmax: float):
-    scale_js = [
-        [float(stop), _hex_to_rgb(color)]
-        for stop, color in SLIP_PRESSURE_COLOR_SCALE
-    ]
-    return f"""
+def _fault_payload(faults: pd.DataFrame):
+    """Compact per-fault records. Geometry is computed client-side for the selection."""
+    payload = []
+    for row in faults.itertuples(index=False):
+        payload.append({
+            "id": str(row.FaultID),
+            "strike": float(row.Strike),
+            "dip": float(row.Dip),
+            "slip": float(row.slip_pressure),
+        })
+    return payload
+
+
+def _stereonet_controls_script(
+    cmin: float,
+    cmax: float,
+    faults_payload,
+    *,
+    rake_count: int,
+    normal_index: int,
+    curve_index: int,
+    composite_index: int,
+):
+    """PSI range controls plus selected-fault geometry / combobox behavior."""
+    scale_json = json.dumps(
+        [[float(stop), list(_hex_to_rgb(color))] for stop, color in SLIP_PRESSURE_COLOR_SCALE],
+        separators=(",", ":"),
+    )
+    script = """
   <style>
-    .stereonet-controls {{
+    .stereonet-controls {
       position: absolute;
       left: 74px;
       right: 90px;
@@ -206,139 +361,324 @@ def _stereonet_controls_script(cmin: float, cmax: float):
       display: flex;
       justify-content: flex-end;
       gap: 8px;
-      color: {MODERN_TEXT_COLOR};
+      color: __TEXT_COLOR__;
       font-size: 12px;
       line-height: 1;
       pointer-events: none;
-    }}
-    .stereonet-controls label {{
+    }
+    .stereonet-controls label {
       display: inline-flex;
       align-items: center;
       gap: 4px;
       white-space: nowrap;
       pointer-events: auto;
-    }}
-    .stereonet-controls input {{
+    }
+    .stereonet-controls input {
       width: 88px;
       box-sizing: border-box;
       padding: 5px 7px;
-      color: {MODERN_TEXT_COLOR};
-      background: {MODERN_CONTROL_BG};
-      border: 1px solid {MODERN_BORDER_COLOR};
+      color: __TEXT_COLOR__;
+      background: __CONTROL_BG__;
+      border: 1px solid __BORDER_COLOR__;
       border-radius: 6px;
       font-size: 12px;
-    }}
+    }
   </style>
   <div class="stereonet-controls" aria-label="Delta PP to slip PSI color range">
-    <label>Min PSI <input id="stereonet-min-psi" type="number" step="any" value="{cmin:.6g}"></label>
-    <label>Max PSI <input id="stereonet-max-psi" type="number" step="any" value="{cmax:.6g}"></label>
+    <label>Min PSI <input id="stereonet-min-psi" type="number" step="any" value="__CMIN_ATTR__"></label>
+    <label>Max PSI <input id="stereonet-max-psi" type="number" step="any" value="__CMAX_ATTR__"></label>
   </div>
   <script>
-    (function () {{
-      const originalMin = {cmin};
-      const originalMax = {cmax};
-      const scale = {scale_js};
+    (function () {
+      const faults = __FAULTS_JSON__;
+      const originalMin = __CMIN__;
+      const originalMax = __CMAX__;
+      const scale = __SCALE_JSON__;
+      const rakeCount = __RAKE_COUNT__;
+      const normalIndex = __NORMAL_INDEX__;
+      const curveIndex = __CURVE_INDEX__;
+      const compositeIndex = __COMPOSITE_INDEX__;
+      const rowHeight = __ROW_HEIGHT__;
       const minInput = document.getElementById('stereonet-min-psi');
       const maxInput = document.getElementById('stereonet-max-psi');
+      const toggle = document.getElementById('stereonet-fault-toggle');
+      const label = document.getElementById('stereonet-fault-label');
+      const menu = document.getElementById('stereonet-fault-menu');
+      const filterInput = document.getElementById('stereonet-fault-filter');
+      const viewport = document.getElementById('stereonet-fault-viewport');
+      const spacer = document.getElementById('stereonet-fault-spacer');
+      const list = document.getElementById('stereonet-fault-list');
+      const combobox = document.getElementById('stereonet-combobox');
+      let selectedIndex = 0;
+      let filtered = faults.map(function (_, index) { return index; });
       let initialAfterplotApplied = false;
 
-      function findPlot() {{
+      function findPlot() {
         return document.querySelector('.plot-shell .js-plotly-plot');
-      }}
+      }
 
-      function toHex(rgb) {{
-        return '#' + rgb.map(function (v) {{
+      function placeControls() {
+        const plotContent = document.querySelector('.plot-shell-content');
+        const controls = document.querySelector('.stereonet-controls');
+        if (plotContent && controls && controls.parentElement !== plotContent) {
+          plotContent.appendChild(controls);
+        }
+      }
+
+      function toHex(rgb) {
+        return '#' + rgb.map(function (v) {
           return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-        }}).join('');
-      }}
+        }).join('');
+      }
 
-      function colorForValue(value, minValue, maxValue) {{
+      function colorForValue(value, minValue, maxValue) {
         let t = maxValue > minValue ? (Number(value) - minValue) / (maxValue - minValue) : 0;
         t = Math.max(0, Math.min(1, t));
         if (t <= scale[0][0]) return toHex(scale[0][1]);
-        for (let i = 1; i < scale.length; i++) {{
-          if (t <= scale[i][0]) {{
+        for (let i = 1; i < scale.length; i++) {
+          if (t <= scale[i][0]) {
             const span = scale[i][0] - scale[i - 1][0] || 1;
             const ratio = (t - scale[i - 1][0]) / span;
-            return toHex([0, 1, 2].map(function (channel) {{
+            return toHex([0, 1, 2].map(function (channel) {
               return scale[i - 1][1][channel] + (scale[i][1][channel] - scale[i - 1][1][channel]) * ratio;
-            }}));
-          }}
-        }}
+            }));
+          }
+        }
         return toHex(scale[scale.length - 1][1]);
-      }}
+      }
 
-      function validRange(minValue, maxValue) {{
+      function validRange(minValue, maxValue) {
         return Number.isFinite(minValue) && Number.isFinite(maxValue) && minValue < maxValue;
-      }}
+      }
 
-      function applyRange() {{
+      function currentRange() {
         let minValue = Number.parseFloat(minInput.value);
         let maxValue = Number.parseFloat(maxInput.value);
-        if (!validRange(minValue, maxValue)) {{
+        if (!validRange(minValue, maxValue)) {
           minValue = originalMin;
           maxValue = originalMax;
           minInput.value = originalMin;
           maxInput.value = originalMax;
-        }}
+        }
+        return {minValue: minValue, maxValue: maxValue};
+      }
 
+      // Match Python fault_normal_projection / projected_curve (linspace 0..pi).
+      function faultNormalProjection(strike, dip) {
+        const strikeRad = (90.0 - strike) * Math.PI / 180.0;
+        const theta = strikeRad + Math.PI / 2.0;
+        const rho = dip / 90.0;
+        return [rho * Math.cos(theta), rho * Math.sin(theta)];
+      }
+
+      function projectedCurve(strike, dip) {
+        const strikeRad = (90.0 - strike) * Math.PI / 180.0;
+        const dipRad = dip * Math.PI / 180.0;
+        const xs = new Array(rakeCount);
+        const ys = new Array(rakeCount);
+        const denom = Math.max(rakeCount - 1, 1);
+        for (let i = 0; i < rakeCount; i++) {
+          const rake = Math.PI * i / denom;
+          const plunge = Math.asin(Math.sin(dipRad) * Math.sin(rake));
+          const trend = strikeRad + Math.atan2(Math.cos(dipRad) * Math.sin(rake), Math.cos(rake));
+          const rho = Math.tan(Math.PI / 4.0 - plunge / 2.0);
+          const theta = trend + Math.PI;
+          xs[i] = rho * Math.cos(theta);
+          ys[i] = rho * Math.sin(theta);
+        }
+        return [xs, ys];
+      }
+
+      function faultHover(fault) {
+        const slipText = Number(fault.slip).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+        return 'Fault: ' + fault.id +
+          '<br>Strike: ' + Number(fault.strike).toFixed(1) + ' deg' +
+          '<br>Dip: ' + Number(fault.dip).toFixed(1) + ' deg' +
+          '<br>Delta PP to slip: ' + slipText + ' PSI';
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function applyRangeAndSelection() {
         const plot = findPlot();
-        if (!plot || typeof Plotly === 'undefined') return;
+        if (!plot || typeof Plotly === 'undefined' || !faults.length) return;
+        const range = currentRange();
+        const fault = faults[selectedIndex];
+        const pole = faultNormalProjection(fault.strike, fault.dip);
+        const curve = projectedCurve(fault.strike, fault.dip);
+        const hover = faultHover(fault) + '<extra></extra>';
+        const lineColor = colorForValue(fault.slip, range.minValue, range.maxValue);
 
-        const markerTraceIndexes = [];
-        const markerUpdates = {{'marker.cmin': [], 'marker.cmax': []}};
-        const contourTraceIndexes = [];
-        const contourUpdates = {{zmin: [], zmax: []}};
+        Plotly.restyle(plot, {
+          x: [[pole[0]]],
+          y: [[pole[1]]],
+          hovertemplate: hover,
+          'marker.color': [[fault.slip]],
+          'marker.cmin': range.minValue,
+          'marker.cmax': range.maxValue
+        }, [normalIndex]);
+        Plotly.restyle(plot, {
+          x: [curve[0]],
+          y: [curve[1]],
+          hovertemplate: hover,
+          'marker.color': [[fault.slip]],
+          'marker.cmin': range.minValue,
+          'marker.cmax': range.maxValue,
+          'line.color': lineColor
+        }, [curveIndex]);
+        Plotly.restyle(plot, {
+          zmin: range.minValue,
+          zmax: range.maxValue
+        }, [compositeIndex]);
+      }
 
-        plot.data.forEach(function (trace, index) {{
-          if (trace.marker && trace.marker.colorscale) {{
-            markerTraceIndexes.push(index);
-            markerUpdates['marker.cmin'].push(minValue);
-            markerUpdates['marker.cmax'].push(maxValue);
-          }}
-          if (trace.type === 'contour') {{
-            contourTraceIndexes.push(index);
-            contourUpdates.zmin.push(minValue);
-            contourUpdates.zmax.push(maxValue);
-          }}
-        }});
-        if (markerTraceIndexes.length) {{
-          Plotly.restyle(plot, markerUpdates, markerTraceIndexes);
-        }}
-        if (contourTraceIndexes.length) {{
-          Plotly.restyle(plot, contourUpdates, contourTraceIndexes);
-        }}
-      }}
+      function applyRange() {
+        applyRangeAndSelection();
+      }
+
+      function setSelectedIndex(index) {
+        if (index < 0 || index >= faults.length) return;
+        selectedIndex = index;
+        label.textContent = faults[index].id;
+        applyRangeAndSelection();
+      }
+
+      function rebuildFiltered() {
+        const query = String(filterInput.value || '').toLowerCase();
+        filtered = [];
+        for (let i = 0; i < faults.length; i++) {
+          if (!query || String(faults[i].id).toLowerCase().indexOf(query) !== -1) {
+            filtered.push(i);
+          }
+        }
+      }
+
+      function renderList() {
+        if (!filtered.length) {
+          spacer.style.height = '40px';
+          list.style.transform = 'translateY(0)';
+          list.innerHTML = '<div class="stereonet-fault-empty">No matching faults</div>';
+          return;
+        }
+        const viewportHeight = viewport.clientHeight || 232;
+        const buffer = 6;
+        const start = Math.max(0, Math.floor(viewport.scrollTop / rowHeight) - buffer);
+        const visibleCount = Math.ceil(viewportHeight / rowHeight) + buffer * 2;
+        const end = Math.min(filtered.length, start + visibleCount);
+        spacer.style.height = (filtered.length * rowHeight) + 'px';
+        list.style.transform = 'translateY(' + (start * rowHeight) + 'px)';
+        let html = '';
+        for (let i = start; i < end; i++) {
+          const index = filtered[i];
+          const selected = index === selectedIndex ? ' aria-selected="true"' : '';
+          html += '<button type="button" class="stereonet-fault-item" role="option" data-index="' +
+            index + '"' + selected + '>' + escapeHtml(faults[index].id) + '</button>';
+        }
+        list.innerHTML = html;
+      }
+
+      function openMenu() {
+        menu.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+        filterInput.value = '';
+        rebuildFiltered();
+        const selectedPos = filtered.indexOf(selectedIndex);
+        viewport.scrollTop = selectedPos >= 0 ? selectedPos * rowHeight : 0;
+        renderList();
+        filterInput.focus();
+      }
+
+      function closeMenu() {
+        menu.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+      }
 
       minInput.addEventListener('input', applyRange);
       maxInput.addEventListener('input', applyRange);
       minInput.addEventListener('change', applyRange);
       maxInput.addEventListener('change', applyRange);
 
-      function applyWhenReady(attempt) {{
+      toggle.addEventListener('click', function () {
+        if (menu.hidden) openMenu();
+        else closeMenu();
+      });
+      filterInput.addEventListener('input', function () {
+        rebuildFiltered();
+        viewport.scrollTop = 0;
+        renderList();
+      });
+      viewport.addEventListener('scroll', renderList);
+      list.addEventListener('click', function (event) {
+        const item = event.target.closest('[data-index]');
+        if (!item) return;
+        setSelectedIndex(Number(item.getAttribute('data-index')));
+        closeMenu();
+      });
+      document.addEventListener('mousedown', function (event) {
+        if (!menu.hidden && combobox && !combobox.contains(event.target)) {
+          closeMenu();
+        }
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closeMenu();
+      });
+
+      function applyWhenReady(attempt) {
+        placeControls();
         const plot = findPlot();
-        if (plot && typeof Plotly !== 'undefined') {{
-          applyRange();
-          if (plot.on) {{
-            plot.on('plotly_afterplot', function () {{
+        if (plot && typeof Plotly !== 'undefined') {
+          applyRangeAndSelection();
+          if (plot.on) {
+            plot.on('plotly_afterplot', function () {
               if (initialAfterplotApplied) return;
               initialAfterplotApplied = true;
-              window.setTimeout(applyRange, 0);
-            }});
-          }}
+              window.setTimeout(applyRangeAndSelection, 0);
+            });
+          }
           return;
-        }}
-        if (attempt < 20) {{
-          window.setTimeout(function () {{
+        }
+        if (attempt < 20) {
+          window.setTimeout(function () {
             applyWhenReady(attempt + 1);
-          }}, 100);
-        }}
-      }}
+          }, 100);
+        }
+      }
 
+      if (faults.length) {
+        label.textContent = faults[0].id;
+      }
       applyWhenReady(0);
-    }})();
+    })();
   </script>
 """
+    replacements = {
+        "__TEXT_COLOR__": MODERN_TEXT_COLOR,
+        "__CONTROL_BG__": MODERN_CONTROL_BG,
+        "__BORDER_COLOR__": MODERN_BORDER_COLOR,
+        "__CMIN_ATTR__": f"{cmin:.6g}",
+        "__CMAX_ATTR__": f"{cmax:.6g}",
+        "__CMIN__": json.dumps(cmin),
+        "__CMAX__": json.dumps(cmax),
+        "__SCALE_JSON__": scale_json,
+        "__RAKE_COUNT__": str(int(rake_count)),
+        "__NORMAL_INDEX__": str(int(normal_index)),
+        "__CURVE_INDEX__": str(int(curve_index)),
+        "__COMPOSITE_INDEX__": str(int(composite_index)),
+        "__ROW_HEIGHT__": str(int(SELECTOR_ROW_HEIGHT)),
+        "__FAULTS_JSON__": json.dumps(faults_payload, separators=(",", ":")),
+    }
+    for token, value in replacements.items():
+        script = script.replace(token, value)
+    return script
 
 
 def _circle_trace():
@@ -474,6 +814,11 @@ def save_stereonet_graph_artifact(
         composite = normal_composite_grid(composite_state, p0, friction)
         composite_x, composite_y, composite_z = _normal_composite_heatmap(composite_state, p0, friction)
         cmin, cmax = _pressure_range(faults, composite)
+        payload = _fault_payload(faults)
+        default_fault = payload[0]
+        hover = _fault_hover(
+            default_fault["id"], default_fault["strike"], default_fault["dip"], default_fault["slip"]
+        )
 
         fig = go.Figure()
         base_traces = _grid_traces()
@@ -482,22 +827,17 @@ def save_stereonet_graph_artifact(
         fig.add_trace(_stress_arrow_trace(max_stress_azimuth))
         base_count = len(base_traces) + 1
 
-        normal_x, normal_y = fault_normal_projection(faults["Strike"], faults["Dip"])
-        hover = (
-            "Fault: " + faults["FaultID"].astype(str)
-            + "<br>Strike: " + faults["Strike"].map("{:.1f}".format) + " deg"
-            + "<br>Dip: " + faults["Dip"].map("{:.1f}".format) + " deg"
-            + "<br>Delta PP to slip: " + faults["slip_pressure"].map("{:,.2f}".format) + " PSI"
-        ).tolist()
+        # Seed only the default fault; JS restyles these traces on selection.
+        normal_x, normal_y = fault_normal_projection([default_fault["strike"]], [default_fault["dip"]])
         fig.add_trace(go.Scatter(
-            x=normal_x,
-            y=normal_y,
+            x=[float(normal_x[0])],
+            y=[float(normal_y[0])],
             mode="markers",
             name="Fault Normals",
-            text=hover,
+            hovertemplate=hover + "<extra></extra>",
             marker={
                 "size": 11,
-                "color": faults["slip_pressure"],
+                "color": [default_fault["slip"]],
                 "cmin": cmin,
                 "cmax": cmax,
                 "colorscale": SLIP_PRESSURE_COLOR_SCALE,
@@ -507,33 +847,28 @@ def save_stereonet_graph_artifact(
                 },
                 "line": {"width": 1, "color": "#0f172a"},
             },
-            hovertemplate="%{text}<extra></extra>",
         ))
         normal_count = 1
+        normal_index = base_count
 
-        rake_count = 361
-        all_curve_x, all_curve_y = _projected_curves_batch(faults["Strike"], faults["Dip"], rake_count)
-        curve_x = all_curve_x.ravel().tolist()
-        curve_y = all_curve_y.ravel().tolist()
-        curve_pressure = np.repeat(faults["slip_pressure"].to_numpy(dtype=float), rake_count).tolist()
-        fault_hover_base = (
-            "Fault: " + faults["FaultID"].astype(str)
-            + "<br>Strike: " + faults["Strike"].map("{:.1f}".format) + " deg"
-            + "<br>Dip: " + faults["Dip"].map("{:.1f}".format) + " deg"
-            + "<br>Delta PP to slip: " + faults["slip_pressure"].map("{:,.2f}".format) + " PSI"
-        ).to_numpy()
-        curve_hover = np.repeat(fault_hover_base, rake_count).tolist()
-        fig.add_trace(go.Scattergl(
+        curve_x, curve_y = projected_curve(
+            default_fault["strike"], default_fault["dip"], rake_count=CURVE_RAKE_COUNT
+        )
+        fig.add_trace(go.Scatter(
             x=curve_x,
             y=curve_y,
-            mode="markers",
+            mode="lines",
             name="Projected Curves",
-            text=curve_hover,
+            hovertemplate=hover + "<extra></extra>",
             visible=False,
+            line={
+                "color": _color_for_value(default_fault["slip"], cmin, cmax),
+                "width": 2.8,
+            },
             marker={
-                "size": 3.6,
-                "symbol": "circle",
-                "color": curve_pressure,
+                "size": 0.1,
+                "opacity": 0.0,
+                "color": [default_fault["slip"]],
                 "cmin": cmin,
                 "cmax": cmax,
                 "colorscale": SLIP_PRESSURE_COLOR_SCALE,
@@ -542,9 +877,9 @@ def save_stereonet_graph_artifact(
                     **modern_colorbar("Delta PP to slip (PSI)"),
                 },
             },
-            hovertemplate="%{text}<extra></extra>",
         ))
         curve_count = 1
+        curve_index = normal_index + normal_count
 
         fig.add_trace(go.Contour(
             x=composite_x,
@@ -568,6 +903,7 @@ def save_stereonet_graph_artifact(
             ),
         ))
         composite_count = 1
+        composite_index = curve_index + curve_count
 
         fig.update_layout(
             autosize=True,
@@ -615,7 +951,20 @@ def save_stereonet_graph_artifact(
             display_order=display_order,
             preferred_height=620,
             dark=False,
-            extra_body=_stereonet_controls_script(cmin, cmax),
+            extra_head=_STEREONET_SELECTOR_HEAD,
+            extra_shell_html=_STEREONET_SELECTOR_SHELL.replace(
+                "__DEFAULT_FAULT_LABEL__",
+                html.escape(default_fault["id"], quote=True),
+            ),
+            extra_body=_stereonet_controls_script(
+                cmin,
+                cmax,
+                payload,
+                rake_count=CURVE_RAKE_COUNT,
+                normal_index=normal_index,
+                curve_index=curve_index,
+                composite_index=composite_index,
+            ),
         )
     except Exception as exc:
         add_graph_warning(helper, step_index, f"{MESSAGE_PREFIX}: {exc}")

@@ -68,9 +68,8 @@ def _random_points_within_radius(lat0, lon0, n, radius_km=15.0):
 def load_faults_shapefile(path: str) -> pd.DataFrame:
     """Load a fault shapefile (CSV exported by portal containing MULTILINESTRING WKT).
 
-    Port of Julia shapefile_to_fsp_csv.
     Expects columns: FID, dip, SHAPE (MULTILINESTRING WKT).
-    Returns DataFrame matching FSP fault CSV format (without FrictionCoefficient).
+    Returns DataFrame matching FSP fault CSV format.
     """
     import math
     shapefile_csv = pd.read_csv(path)

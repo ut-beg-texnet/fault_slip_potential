@@ -69,16 +69,9 @@ def test_normal_composite_grid_returns_non_negative_slip_pressure_values():
     assert np.isfinite(composite[["x", "y", "slip_pressure"]].to_numpy()).all()
 
 
-def test_stereonet_artifact_registers_html_and_dropdown_modes(tmp_path):
+def _stereonet_html(tmp_path, faults_df):
     helper = DummyHelper(tmp_path)
-    faults_df = pd.DataFrame({
-        "FaultID": ["A", "B"],
-        "Strike": [45.0, 210.0],
-        "Dip": [60.0, 35.0],
-        "slip_pressure": [100.0, 500.0],
-    })
     stress_state = StressState(np.array([7000.0, 4300.0, 6000.0]), 60.0)
-
     output_path = save_stereonet_graph_artifact(
         helper,
         faults_df,
@@ -87,15 +80,27 @@ def test_stereonet_artifact_registers_html_and_dropdown_modes(tmp_path):
         0.6,
         60.0,
     )
-
     assert output_path is not None
+    html_text = open(output_path, encoding="utf-8").read()
+    return helper, output_path, html_text
+
+
+def test_stereonet_artifact_registers_html_and_dropdown_modes(tmp_path):
+    faults_df = pd.DataFrame({
+        "FaultID": ["A", "B"],
+        "Strike": [45.0, 210.0],
+        "Dip": [60.0, 35.0],
+        "slip_pressure": [100.0, 500.0],
+    })
+    helper, output_path, html_text = _stereonet_html(tmp_path, faults_df)
+
     artifact = helper.origArgsData["GraphArtifacts"][0]
     assert artifact["key"] == "fsp-deterministic-geomechanics-stereonet"
     assert artifact["renderer"] == "html"
     assert artifact["contentType"] == "text/html"
     assert artifact["displayOrder"] == 22
+    assert output_path == artifact["path"]
 
-    html_text = open(output_path, encoding="utf-8").read()
     assert "Fault Normals" in html_text
     assert "Projected Curves" in html_text
     assert "Normal Composite" in html_text
@@ -105,5 +110,34 @@ def test_stereonet_artifact_registers_html_and_dropdown_modes(tmp_path):
     assert "Max PSI" in html_text
     assert "stereonet-controls" in html_text
     assert "Inter, Segoe UI" in html_text
-    assert "scattergl" in html_text
     assert SLIP_PRESSURE_COLOR_SCALE[0][1] in html_text
+    assert '"mode":"lines"' in html_text or '"mode": "lines"' in html_text
+
+    assert 'id="stereonet-fault-label"' in html_text
+    assert ">A</span>" in html_text
+    assert "stereonet-toolbar" in html_text
+    assert "Search faults" in html_text
+    assert "Show All" not in html_text
+    assert "All faults" not in html_text
+    assert html_text.count('"slip":') == 2
+    assert '"strike":45' in html_text or '"strike":45.0' in html_text
+    assert '"dip":' in html_text
+    assert html_text.count("Fault: B") < 5
+
+
+def test_stereonet_html_stays_compact_for_many_faults(tmp_path):
+    n_faults = 400
+    faults_df = pd.DataFrame({
+        "FaultID": [f"F{i}" for i in range(n_faults)],
+        "Strike": np.linspace(0.0, 350.0, n_faults),
+        "Dip": np.linspace(10.0, 80.0, n_faults),
+        "slip_pressure": np.linspace(50.0, 900.0, n_faults),
+    })
+    _, _, html_text = _stereonet_html(tmp_path, faults_df)
+
+    assert html_text.count('"slip":') == n_faults
+    assert html_text.count("Delta PP to slip:") < 20
+    assert "Show All" not in html_text
+    # Compact payload is O(N); the old 361-point hover cloud was O(N * rake).
+    assert len(html_text) < 2_000_000
+    assert len(html_text) < n_faults * 361 * 20
