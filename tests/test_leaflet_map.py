@@ -462,6 +462,9 @@ def test_direct_hydrology_map_html_contains_well_filters_and_fault_lines(tmp_pat
     assert "fault-controls" in html_text
     assert "well-marker-controls" in html_text
     assert "map.attributionControl.setPrefix(false)" in html_text
+    assert "basemaps.cartocdn.com/light_all" in html_text
+    assert "key=cb1_2ddj_1_7e32c434ee4023f16efec68b" in html_text
+    assert "tile.openstreetmap.org" not in html_text
     assert 'class="section-toggle" aria-expanded="false" aria-controls="fault-section-content"' in html_text
     assert 'class="section-toggle" aria-expanded="false" aria-controls="well-marker-section-content"' in html_text
     assert 'id="fault-section-content" class="section-content" hidden' in html_text

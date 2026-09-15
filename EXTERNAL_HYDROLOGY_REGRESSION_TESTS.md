@@ -50,7 +50,7 @@ This harness does **not** need `technical code/` (`pfront.m` / `calcST.m`). If M
 
 Required columns: `FaultID`, `Latitude(WGS84)`, `Longitude(WGS84)`.
 
-Every fault must lie inside each snapshot’s convex hull. Python raises if a fault is uncovered; MATLAB `griddata` returns NaN, which fails the comparison.
+Every fault must lie inside each snapshot’s convex hull for a valid MATLAB comparison. Production Python returns NaN outside the hull (portal Steps 4–6 treat that as 0 additional psi); MATLAB `griddata` returns NaN, which fails the comparison.
 
 ### External hydrologic model
 
@@ -144,7 +144,7 @@ The process exits **0** on pass and **1** on fail. `summary.json` has `"passed"`
 | `MATLAB R2012b was not found` | Wrong `--matlab-executable`, or R2012b is not installed |
 | MATLAB did not produce all outputs | MATLAB failed to run the generated `.m` driver; inspect `matlab_run.log`, `matlab_error.txt`, and `matlab_external_hydrology_regression_driver.m` |
 | External hydrologic model CSV is missing required columns | File is not portal format; need `Latitude (WGS84)`, `Longitude (WGS84)`, `Change in PSI`, `Year` |
-| `does not cover fault row(s)` | A fault lies outside that year’s convex hull; move faults inside the snapshot or expand the model |
+| Uncovered fault pressure is NaN (or 0 psi in portal Steps 4–6) | A fault lies outside that year’s convex hull; move faults inside the snapshot or expand the model |
 | Python/MATLAB rows did not line up | Stale MATLAB CSVs from a previous run in `--output-dir`, or a year failed to parse |
 | Default faults/model file not found | `examples/` is not in git; pass `--faults` and `--model` explicitly |
 | Pressure fail with NaNs | MATLAB `griddata` returned NaN for a fault outside the hull |

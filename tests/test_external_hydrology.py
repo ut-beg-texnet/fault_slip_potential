@@ -2,6 +2,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from fsp.io.external_hydrology import (  # noqa: E402
     load_external_hydrology,
     interpolate_fault_pressures,
+    pressure_rows_for_faults,
     resolve_external_year,
     to_portal_columns,
 )
@@ -85,11 +87,27 @@ def test_rejects_duplicate_coordinate_year_rows(tmp_path):
         load_external_hydrology(_model_file(tmp_path, rows))
 
 
-def test_rejects_fault_outside_snapshot_coverage(tmp_path):
+def test_uncovered_fault_is_nan_and_zero_in_summary(tmp_path):
+    """Outside the hull stays NaN from interpolate; summary rows use 0 additional psi."""
     model = load_external_hydrology(_model_file(tmp_path, _rows()))
 
-    with pytest.raises(ValueError, match="does not cover"):
-        interpolate_fault_pressures(model, 2020, [40.0], [-97.0])
+    year, pressures = interpolate_fault_pressures(
+        model, 2020, [30.0, 40.0], [-96.5, -97.0]
+    )
+
+    assert year == 2020
+    assert pressures[0] == pytest.approx(50.0, abs=0.1)
+    assert np.isnan(pressures[1])
+
+    faults = pd.DataFrame({
+        "FaultID": ["inside", "outside"],
+        "Latitude(WGS84)": [30.0, 40.0],
+        "Longitude(WGS84)": [-96.5, -97.0],
+    })
+    rows = pressure_rows_for_faults(model, faults, years=[2020])
+    by_id = rows.set_index("ID")["Pressure"]
+    assert by_id["inside"] == pytest.approx(50.0, abs=0.1)
+    assert by_id["outside"] == 0.0
 
 
 def test_rectilinear_cell_uses_matlab_nw_se_diagonal(tmp_path):

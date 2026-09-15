@@ -24,6 +24,9 @@ from graphs.artifacts import (
 )
 
 
+# Carto raster basemaps require a free API key: https://carto.com/basemaps/apikey/
+CARTO_BASEMAP_API_KEY = "cb1_2ddj_1_7e32c434ee4023f16efec68b"
+
 PRESSURE_COLOR_SCALE = [
     [0.0, "#1f3bff"],
     [0.22, "#1db7ff"],
@@ -498,9 +501,10 @@ def _hydrology_map_html(
     const wellMarkerLayers = [];
 
     const map = L.map('map', {{preferCanvas: true}});
-    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+    L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png?key={CARTO_BASEMAP_API_KEY}', {{
+      maxZoom: 20,
+      subdomains: 'abcd',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>'
     }}).addTo(map);
     map.attributionControl.setPrefix(false);
 

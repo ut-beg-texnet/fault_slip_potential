@@ -118,17 +118,15 @@ def external_year_message(requested_year: int, selected_year: int) -> str | None
 
 
 def interpolate_fault_pressures(model: pd.DataFrame, requested_year: int, latitudes, longitudes) -> tuple[int, np.ndarray]:
-    """Linearly interpolate the selected snapshot and reject uncovered faults."""
+    """Linearly interpolate the selected snapshot onto fault coordinates.
+
+    Points outside that year's convex hull are NaN so callers can tell them
+    apart from a genuine 0 psi inside the hull. Portal steps treat those NaNs
+    as 0 additional psi.
+    """
     selected_year = resolve_external_year(model, requested_year)
     snapshot = model[model["Year"] == selected_year]
     values = _interpolate_snapshot(snapshot, latitudes, longitudes)
-    uncovered = np.flatnonzero(~np.isfinite(values))
-    if len(uncovered):
-        positions = ", ".join(str(index + 1) for index in uncovered[:10])
-        suffix = "" if len(uncovered) <= 10 else ", ..."
-        raise ValueError(
-            f"External hydrologic model does not cover fault row(s) {positions}{suffix} for {selected_year}."
-        )
     return selected_year, values
 
 
@@ -153,7 +151,10 @@ def interpolated_grid(model: pd.DataFrame, selected_year: int, n: int = 100) -> 
 
 
 def pressure_rows_for_faults(model: pd.DataFrame, faults: pd.DataFrame, years=None) -> pd.DataFrame:
-    """Interpolate each supplied snapshot onto every fault for summary outputs."""
+    """Interpolate each supplied snapshot onto every fault for summary outputs.
+
+    Faults outside a snapshot's hull get 0 additional psi.
+    """
     if faults.empty:
         return pd.DataFrame(columns=["ID", "Pressure", "Year"])
     target_years = available_years(model) if years is None else [int(year) for year in years]
@@ -164,7 +165,8 @@ def pressure_rows_for_faults(model: pd.DataFrame, faults: pd.DataFrame, years=No
     for year in target_years:
         selected_year, pressures = interpolate_fault_pressures(model, year, latitudes, longitudes)
         for fault_id, pressure in zip(ids, pressures):
-            rows.append({"ID": fault_id, "Pressure": round(float(pressure), 2), "Year": selected_year})
+            additional_psi = 0.0 if not np.isfinite(pressure) else float(pressure)
+            rows.append({"ID": fault_id, "Pressure": round(additional_psi, 2), "Year": selected_year})
     return pd.DataFrame(rows)
 
 

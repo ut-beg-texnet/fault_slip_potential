@@ -150,6 +150,8 @@ def _run_external_hydrology(helper, requested_year: int) -> bool:
     year_of_interest, pressures = interpolate_fault_pressures(
         model, requested_year, fault_df["Latitude(WGS84)"], fault_df["Longitude(WGS84)"]
     )
+    # Uncovered centroids are 0 additional psi (same as Step 4 / summary).
+    pressures = np.where(np.isfinite(pressures), pressures, 0.0)
     year_message = external_year_message(requested_year, year_of_interest)
     if year_message:
         helper.addMessageWithStepIndex(STEP, year_message, 1)

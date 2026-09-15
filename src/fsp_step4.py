@@ -160,11 +160,13 @@ def main():
                 helper.writeResultsFile()
                 return
             report_progress("Interpolating external hydrologic model at faults")
-            year_of_interest, dp_faults = interpolate_fault_pressures(
+            year_of_interest, dp_raw = interpolate_fault_pressures(
                 external_model, requested_year,
                 fault_df["Latitude(WGS84)"].to_numpy(dtype=float),
                 fault_df["Longitude(WGS84)"].to_numpy(dtype=float),
             )
+            # Uncovered centroids are 0 additional psi so they stay on the map and Mohr.
+            dp_faults = np.where(np.isfinite(dp_raw), dp_raw, 0.0)
             year_message = external_year_message(requested_year, year_of_interest)
             if year_message:
                 helper.addMessageWithStepIndex(STEP, year_message, 1)
