@@ -183,11 +183,11 @@ def main():
 
         # Determine stress regime label
         if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
-            regime = "Normal"
+            regime = "Normal Faulting"
         elif abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
-            regime = "Reverse"
+            regime = "Reverse Faulting"
         else:
-            regime = "Strike-Slip"
+            regime = "Strike-Slip Faulting"
 
         arcs_df, slip_df, fault_df = mohr_diagram_data_to_d3_portal(
             float(sh), float(sH), float(sV),
