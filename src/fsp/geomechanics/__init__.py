@@ -3,6 +3,7 @@ from .stress import (
     calculate_modified_aphi_stresses,
     calculate_standard_aphi_stresses,
     calculate_absolute_stresses,
+    stress_regime_label,
 )
 from .slip import (
     calculate_fault_effective_stresses,

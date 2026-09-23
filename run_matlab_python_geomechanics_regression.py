@@ -25,7 +25,7 @@ from fsp.geomechanics.slip import (
     calculate_scu,
     calculate_slip_pressure,
 )
-from fsp.geomechanics.stress import calculate_absolute_stresses
+from fsp.geomechanics.stress import calculate_absolute_stresses, stress_regime_label
 from fsp.monte_carlo.geomechanics_mc import run_geomechanics_mc
 
 # Change these based on your setup
@@ -240,14 +240,6 @@ def matlab_samples_from_production(samples_df: pd.DataFrame, args: argparse.Name
     return np.column_stack(columns)
 
 
-def stress_regime_label(sV: float, sh: float, sH: float) -> str:
-    if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
-        return "Normal"
-    if abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
-        return "Reverse"
-    return "Strike-Slip"
-
-
 def run_matlab(args: argparse.Namespace, matlab_sig: np.ndarray, p0: float,
                strikes: np.ndarray, dips: np.ndarray, samples: np.ndarray | None) -> dict[str, np.ndarray]:
     """Generate and run a self-contained R2012b mohrs_3D driver."""
@@ -449,7 +441,13 @@ def run() -> int:
     sig, tau, ppf, cff, scu = python_step2_metrics(strikes, dips, stress_state, p0, mu)
     arcs_df, _, _ = mohr_diagram_data_to_d3_portal(
         sh, sH, sV, tau, sig, p0, biot, 0.5, 0.0, strikes, mu,
-        stress_regime_label(sV, sh, sH), ppf, fault_ids.tolist(),
+        stress_regime_label(
+            args.vertical_stress,
+            args.min_horizontal_stress,
+            args.max_horizontal_stress,
+            aphi=args.aphi_value if args.stress_mode != "gradients" else None,
+        ),
+        ppf, fault_ids.tolist(),
     )
     python_arcs = arcs_df[arcs_df["id"].isin(("circle1", "circle2", "circle3"))].copy()
 

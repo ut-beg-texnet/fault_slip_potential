@@ -33,7 +33,7 @@ from fsp.io.wells import (
     load_injection_wells, preprocess_well_data, normalize_wells_to_well_data, get_date_bounds,
     resolve_extrapolate_injection_rates,
 )
-from fsp.geomechanics.stress import calculate_absolute_stresses
+from fsp.geomechanics.stress import calculate_absolute_stresses, stress_regime_label
 from fsp.geomechanics.slip import analyze_fault_hydro
 from fsp.geomechanics.mohr import mohr_diagram_hydro_data_to_d3_portal
 from graphs.hydrology_map import save_direct_hydrology_pressure_map_artifact
@@ -56,6 +56,17 @@ def _has_required_geomechanics_inputs(stress_inputs: dict, stress_model_type: st
     if stress_model_type in ("gradients", "all_gradients"):
         return stress_inputs.get("min_horizontal_stress") is not None and stress_inputs.get("max_horizontal_stress") is not None
     return stress_inputs.get("aphi_value") is not None
+
+
+def _mohr_stress_regime(stress_inputs: dict, stress_model_type: str) -> str:
+    """MATLAB setstressregtext.m: A-Phi bins APhi; gradients rank Sv."""
+    if stress_model_type in ("aphi_model", "aphi_no_min", "aphi_min"):
+        return stress_regime_label(aphi=float(stress_inputs["aphi_value"]))
+    return stress_regime_label(
+        float(stress_inputs["vertical_stress"]),
+        float(stress_inputs["min_horizontal_stress"]),
+        float(stress_inputs["max_horizontal_stress"]),
+    )
 
 
 def _geomechanics_steps_were_skipped(helper) -> bool:
@@ -128,7 +139,7 @@ def _save_imported_pressure_mohr_overlay(helper, fault_df, pressures, year_of_in
         analyze_fault_hydro(float(row["Strike"]), float(row["Dip"]), friction, stress_state, p0, float(pressure))
         for (_, row), pressure in zip(fault_df.iterrows(), pressures)
     ]
-    regime = "Normal" if abs(sV) >= abs(sH) >= abs(sh) else "Reverse" if abs(sH) >= abs(sh) >= abs(sV) else "Strike-Slip"
+    regime = _mohr_stress_regime(stress_inputs, stress_model_type)
     arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(
         float(sh), float(sH), float(sV),
         [result["shear_stress"] for result in results],
@@ -400,12 +411,7 @@ def main():
             sigma_eff = [r["normal_stress"] for r in hydro_res_list]
             strikes = list(fault_df["Strike"].astype(float))
 
-            if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
-                hydro_regime = "Normal"
-            elif abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
-                hydro_regime = "Reverse"
-            else:
-                hydro_regime = "Strike-Slip"
+            hydro_regime = _mohr_stress_regime(stress_inputs, stress_model_type)
 
             remaining_slip_pressures = [r["slip_pressure"] for r in hydro_res_list]
             arcs_df, slip_df, fault_df_mohr = mohr_diagram_hydro_data_to_d3_portal(

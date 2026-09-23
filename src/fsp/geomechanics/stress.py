@@ -6,6 +6,44 @@ import numpy as np
 from ..models.stress import StressState
 
 
+# Mohr captions used by MATLAB setstressregtext.m (1-based Sv rank → label).
+_REGIME_BY_SV_RANK = (
+    "Normal Faulting",
+    "Strike-Slip Faulting",
+    "Reverse Faulting",
+)
+
+
+def stress_regime_label(sV=None, sh=None, sH=None, aphi=None):
+    """Return the Mohr diagram stress-regime caption.
+
+    Matches MATLAB ``setstressregtext.m``:
+
+    * Gradient model (``aphi`` omitted): sort the three *input* stress
+      gradients descending and take the first index equal to ``sV``.
+    * A-Phi model (``aphi`` provided): bin the A-Phi value and ignore the
+      stresses. ``APhi == 1`` is Normal; ``APhi == 2`` is Strike-Slip.
+    """
+    if aphi is not None:
+        aphi_value = float(aphi)
+        if aphi_value <= 1:
+            return "Normal Faulting"
+        if aphi_value <= 2:
+            return "Strike-Slip Faulting"
+        if aphi_value <= 3:
+            return "Reverse Faulting"
+        raise ValueError(f"APhi value must be in range [0,3]. Got: {aphi_value}")
+
+    if sV is None or sh is None or sH is None:
+        raise ValueError("Gradient stress-regime labels need sV, sh, and sH.")
+
+    # MATLAB: sig=sort(vals(1:3),'descend'); ixSv=find(sig==vals(1)); ixSv=ixSv(1)
+    sorted_sig = sorted((float(sV), float(sh), float(sH)), reverse=True)
+    sV_value = float(sV)
+    ix_sv = next(i for i, value in enumerate(sorted_sig) if value == sV_value)
+    return _REGIME_BY_SV_RANK[ix_sv]
+
+
 def calculate_n_phi(aphi: float):
     """Convert A-Phi value (0-3) to (n, phi) pair.
 
@@ -105,6 +143,11 @@ def calculate_absolute_stresses(stress_data: dict, friction_coefficient: float, 
     mu = friction_coefficient
 
     if stress_model_type in ("gradients", "all_gradients"):
+        # MATLAB checkdata.m (aphi.use == 0): Shmin gradient must not exceed SHmax.
+        # Equal gradients are allowed. A-Phi modes are not checked here because
+        # SHmax is calculated rather than entered.
+        if float(sh_grad) > float(sH_grad):
+            raise ValueError("Minimum horizontal stress gradient must not exceed maximum horizontal stress gradient")
         sH = round(sH_grad * reference_depth, 2)
         sh = round(sh_grad * reference_depth, 2)
 

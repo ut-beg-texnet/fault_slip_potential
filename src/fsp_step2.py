@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import numpy as np
 import pandas as pd
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
-from fsp.geomechanics.stress import calculate_absolute_stresses
+from fsp.geomechanics.stress import calculate_absolute_stresses, stress_regime_label
 from fsp.geomechanics.slip import (
     calculate_fault_effective_stresses,
     calculate_slip_pressure,
@@ -181,13 +181,15 @@ def main():
         fault_ids = faults_df["FaultID"].astype(str).tolist()
         strikes = list(faults_df["Strike"].astype(float))
 
-        # Determine stress regime label
-        if abs(sV) >= abs(sH) and abs(sH) >= abs(sh):
-            regime = "Normal Faulting"
-        elif abs(sH) >= abs(sh) and abs(sh) >= abs(sV):
-            regime = "Reverse Faulting"
+        # MATLAB setstressregtext.m: A-Phi bins the APhi value; gradients rank Sv.
+        if stress_model_type in ("aphi_model", "aphi_no_min", "aphi_min"):
+            regime = stress_regime_label(aphi=float(stress_inputs["aphi_value"]))
         else:
-            regime = "Strike-Slip Faulting"
+            regime = stress_regime_label(
+                float(stress_inputs["vertical_stress"]),
+                float(stress_inputs["min_horizontal_stress"]),
+                float(stress_inputs["max_horizontal_stress"]),
+            )
 
         arcs_df, slip_df, fault_df = mohr_diagram_data_to_d3_portal(
             float(sh), float(sH), float(sV),

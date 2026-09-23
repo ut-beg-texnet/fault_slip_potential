@@ -14,6 +14,7 @@ from fsp.models.stress import StressState
 from fsp.geomechanics.stress import (
     calculate_n_phi,
     calculate_absolute_stresses,
+    stress_regime_label,
 )
 from fsp.geomechanics.slip import (
     calculate_fault_effective_stresses,
@@ -84,6 +85,37 @@ class TestCalculateNPhi:
             calculate_n_phi(3.1)
 
 
+class TestStressRegimeLabel:
+    """MATLAB setstressregtext.m captions for Mohr diagrams."""
+
+    def test_strict_orders(self):
+        assert stress_regime_label(1.1, 0.7, 1.0) == "Normal Faulting"
+        assert stress_regime_label(1.0, 0.7, 1.1) == "Strike-Slip Faulting"
+        assert stress_regime_label(0.5, 0.8, 1.1) == "Reverse Faulting"
+
+    def test_ties(self):
+        # Sv shares the largest value → first sort index is Sv → Normal.
+        assert stress_regime_label(1.1, 0.7, 1.1) == "Normal Faulting"
+        # Sv shares the smallest value → first match is the middle rank → Strike-Slip.
+        assert stress_regime_label(0.7, 0.7, 1.1) == "Strike-Slip Faulting"
+        assert stress_regime_label(1.0, 1.0, 1.0) == "Normal Faulting"
+
+    def test_swapped_horizontals(self):
+        # sh > sH > Sv: rank of Sv is still smallest → Reverse.
+        assert stress_regime_label(0.5, 1.2, 1.0) == "Reverse Faulting"
+
+    def test_aphi_boundaries(self):
+        assert stress_regime_label(aphi=1.0) == "Normal Faulting"
+        assert stress_regime_label(aphi=1.5) == "Strike-Slip Faulting"
+        assert stress_regime_label(aphi=2.0) == "Strike-Slip Faulting"
+        assert stress_regime_label(aphi=2.5) == "Reverse Faulting"
+        assert stress_regime_label(aphi=3.0) == "Reverse Faulting"
+
+    def test_aphi_out_of_range(self):
+        with pytest.raises(ValueError):
+            stress_regime_label(aphi=3.1)
+
+
 class TestCalculateAbsoluteStresses:
     def test_gradients_model(self):
         stress_data = {
@@ -99,6 +131,31 @@ class TestCalculateAbsoluteStresses:
         assert abs(state.principal_stresses[1] - SHMIN_PSI) < 0.1   # Shmin
         assert abs(state.principal_stresses[2] - SHMAX_PSI) < 0.1   # SHmax
         assert abs(p0 - P0_PSI) < 0.1
+
+    def test_min_horizontal_greater_than_max_raises(self):
+        # MATLAB checkdata.m: gradients mode, Shmin > SHmax → errordlg.
+        stress_data = {
+            "reference_depth": REFERENCE_DEPTH_FT,
+            "vertical_stress": VERTICAL_STRESS_PSI_FT,
+            "pore_pressure": PORE_PRESSURE_PSI_FT,
+            "max_stress_azimuth": MAX_STRESS_AZIMUTH_DEG,
+            "min_horizontal_stress": MAX_HORIZONTAL_STRESS_PSI_FT,
+            "max_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+        }
+        with pytest.raises(ValueError, match="Check horizontal stress gradients"):
+            calculate_absolute_stresses(stress_data, FRICTION_COEFFICIENT, "gradients")
+
+    def test_equal_horizontal_gradients_allowed(self):
+        stress_data = {
+            "reference_depth": REFERENCE_DEPTH_FT,
+            "vertical_stress": VERTICAL_STRESS_PSI_FT,
+            "pore_pressure": PORE_PRESSURE_PSI_FT,
+            "max_stress_azimuth": MAX_STRESS_AZIMUTH_DEG,
+            "min_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+            "max_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+        }
+        state, _p0 = calculate_absolute_stresses(stress_data, FRICTION_COEFFICIENT, "all_gradients")
+        assert abs(state.principal_stresses[1] - state.principal_stresses[2]) < 0.1
 
 
 class TestFaultEffectiveStresses:
