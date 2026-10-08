@@ -303,6 +303,70 @@ class TestGeomechanicsMonteCarloMetadata:
             assert column in sample_inputs.columns
 
 
+class TestAPhiMonteCarloFriction:
+    """MATLAB mohrs_3D.m passes each run's sampled mu(1) to getHorFromAPhi."""
+
+    STRESS = {
+        "reference_depth": 5000.0,
+        "vertical_stress": 1.0,
+        "pore_pressure": 0.45,
+        "max_stress_azimuth": 60.0,
+        "aphi_value": 1.2,
+    }
+    FAULTS = pd.DataFrame({"FaultID": ["F1", "F2"], "Strike": [30.0, 120.0], "Dip": [70.0, 85.0]})
+
+    def _per_run_slip(self, sample_inputs, friction_column_value):
+        expected = []
+        for row in sample_inputs.itertuples(index=False):
+            sim_stress = dict(self.STRESS)
+            sim_stress["vertical_stress"] = row.vertical_stress_gradient
+            sim_stress["pore_pressure"] = row.initial_pore_pressure_gradient
+            sim_stress["max_stress_azimuth"] = row.max_stress_azimuth
+            sim_stress["aphi_value"] = row.aphi_value
+            mu_for_stress = friction_column_value(row)
+            state, p0 = calculate_absolute_stresses(sim_stress, mu_for_stress, "aphi_no_min")
+            sig, tau, *_ = calculate_fault_effective_stresses(
+                np.array([row.strike_angle]), np.array([row.dip_angle]), state, p0, np.zeros(1)
+            )
+            expected.append(float(ComputeCriticalPorePressureForFailure(sig, tau, row.friction_coefficient, p0)[0]))
+        return np.array(expected)
+
+    def test_aphi_no_min_stresses_use_sampled_friction(self):
+        uncertainties = {
+            "vertical_stress_gradient_uncertainty": 0.02,
+            "initial_pore_pressure_gradient_uncertainty": 0.02,
+            "max_stress_azimuth_uncertainty": 10.0,
+            "aphi_value_uncertainty": 0.3,
+            "friction_coefficient_uncertainty": 0.2,
+            "strike_angles_uncertainty": 5.0,
+            "dip_angles_uncertainty": 5.0,
+        }
+        results, sample_inputs = run_geomechanics_mc(
+            self.STRESS, self.FAULTS, 25, uncertainties, "aphi_no_min", 0.6,
+            random_seed=7, return_sample_inputs=True,
+        )
+        merged = results.merge(sample_inputs, on=["SimulationID", "FaultID"])
+        assert merged["friction_coefficient"].nunique() > 1
+
+        sampled = self._per_run_slip(merged, lambda row: row.friction_coefficient)
+        assert np.allclose(merged["SlipPressure"].to_numpy(), sampled, rtol=1e-12, atol=1e-9)
+
+        # The old behaviour (nominal mu for the A-Phi stresses) gives different results.
+        nominal = self._per_run_slip(merged, lambda row: 0.6)
+        assert not np.allclose(merged["SlipPressure"].to_numpy(), nominal)
+
+    def test_aphi_no_min_without_friction_uncertainty_uses_nominal_friction(self):
+        uncertainties = {"aphi_value_uncertainty": 0.3, "strike_angles_uncertainty": 5.0}
+        results, sample_inputs = run_geomechanics_mc(
+            self.STRESS, self.FAULTS, 10, uncertainties, "aphi_no_min", 0.6,
+            random_seed=11, return_sample_inputs=True,
+        )
+        merged = results.merge(sample_inputs, on=["SimulationID", "FaultID"])
+        assert (merged["friction_coefficient"] == 0.6).all()
+        nominal = self._per_run_slip(merged, lambda row: 0.6)
+        assert np.allclose(merged["SlipPressure"].to_numpy(), nominal, rtol=1e-12, atol=1e-9)
+
+
 class TestMCUncertaintySensitivity:
     def test_builds_per_fault_parameter_rows_sorted_by_impact(self):
         mc_df = pd.DataFrame({
@@ -651,7 +715,7 @@ class TestScientificGraphArtifacts:
         assert "showlegend: false" in html
         assert "const selectedSeriesIds = new Set(defaultId ? [defaultId]" in html
         assert "FSP " in html
-        assert '"fsp":0.33' in html
+        assert '"fsp":0.67' in html
         assert "grid-template-areas:" in html
         assert '"plot selector"' in html
         assert '"summary selector"' not in html

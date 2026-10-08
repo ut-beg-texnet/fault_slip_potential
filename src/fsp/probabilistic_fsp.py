@@ -32,7 +32,16 @@ def selected_year_message(requested_year: int, effective_year: int, start_year: 
 
 
 def _matlab_ecdf_lookup(geomechanics_pressures) -> tuple[np.ndarray, np.ndarray]:
-    """Build the CDF points retained by legacy MATLAB's calcFaultFSP."""
+    """Build the CDF points retained by legacy MATLAB's calcFaultFSP.
+
+    Mirrors callrunmc.m (ecdf, then clip negative x to 0) followed by
+    calcFaultFSP.m ``[~,ix]=unique(presCDF)``. The production tool was compiled
+    with MATLAB R2012b, whose ``unique`` returns the index of the LAST
+    occurrence of each repeated value (first-occurrence became the default only
+    in R2013a). So each retained x carries the largest CDF value at that x:
+    P(ppfail <= 0) at the clipped zero, and F(min) rather than the leading 0 at
+    the duplicated minimum.
+    """
     samples = np.asarray(geomechanics_pressures, dtype=float)
     samples = np.sort(samples[np.isfinite(samples)])
     if len(samples) == 0:
@@ -46,10 +55,10 @@ def _matlab_ecdf_lookup(geomechanics_pressures) -> tuple[np.ndarray, np.ndarray]
     cdf = np.concatenate(([0.0], cdf))
     x = np.maximum(x, 0.0)
 
-    # MATLAB unique keeps the first value after negative pressures are clipped.
-    _, first_indices = np.unique(x, return_index=True)
-    first_indices.sort()
-    return x[first_indices], cdf[first_indices]
+    # MATLAB R2012b unique keeps the LAST occurrence of each repeated value.
+    _, reversed_indices = np.unique(x[::-1], return_index=True)
+    last_indices = np.sort(len(x) - 1 - reversed_indices)
+    return x[last_indices], cdf[last_indices]
 
 
 def _matlab_hydro_ecdf_queries(hydrology_pressures) -> np.ndarray:

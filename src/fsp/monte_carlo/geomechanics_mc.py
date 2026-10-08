@@ -221,8 +221,10 @@ def run_geomechanics_mc(stress_inputs: dict, faults_df: pd.DataFrame,
                 sim_stress["aphi_value"] = aphi_samples[sim_i]
                 sim_stress.pop("min_horizontal_stress", None)
 
+            # MATLAB mohrs_3D.m passes the sampled mu(1) to getHorFromAPhi, so the
+            # standard A-Phi horizontal stresses move with each run's friction.
             stress_state_obj, p0_abs = calculate_absolute_stresses(
-                sim_stress, friction_coefficient, stress_model_type
+                sim_stress, float(mu_mc[sim_i]), stress_model_type
             )
 
             sig, tau, *_ = calculate_fault_effective_stresses(

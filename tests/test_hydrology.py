@@ -428,23 +428,28 @@ def test_legacy_fsp_lookup_matches_matlab_ecdf_nearest_neighbor_rule():
         _matlab_hydro_ecdf_queries(hydro_pressures),
         [5.0, 5.0, 12.0, 15.0, 24.0, 38.0, 50.0],
     )
+    # R2012b unique keeps the last duplicate, so x=10 carries F(10)=0.25.
     probabilities = legacy_fsp_probabilities(geo_pressures, hydro_pressures)
-    assert np.allclose(probabilities, [0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0])
+    assert np.allclose(probabilities, [0.25, 0.25, 0.25, 0.5, 0.5, 1.0, 1.0])
+    # Mean verified against MATLAB R2012b calcFaultFSP.
+    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.5357142857142857)
 
 
-def test_legacy_fsp_lookup_clips_negative_pressures_and_keeps_first_duplicate():
+def test_legacy_fsp_lookup_clips_negative_pressures_and_keeps_last_duplicate():
+    # MATLAB R2012b unique returns the LAST occurrence: the clipped 0 psi point
+    # carries P(ppfail <= 0) = 3/6, not the leading ecdf 0.
     lookup_pressures, lookup_probabilities = _matlab_ecdf_lookup(
         np.array([-2.0, -1.0, 0.0, 2.0, 2.0, 4.0])
     )
 
     assert np.allclose(lookup_pressures, [0.0, 2.0, 4.0])
-    assert np.allclose(lookup_probabilities, [0.0, 5.0 / 6.0, 1.0])
+    assert np.allclose(lookup_probabilities, [0.5, 5.0 / 6.0, 1.0])
     assert np.allclose(
         legacy_fsp_probabilities(
             [-2.0, -1.0, 0.0, 2.0, 2.0, 4.0],
             [-1.0, 0.0, 0.9, 2.0, 4.0],
         ),
-        [0.0, 0.0, 0.0, 0.0, 5.0 / 6.0, 1.0],
+        [0.5, 0.5, 0.5, 0.5, 5.0 / 6.0, 1.0],
     )
 
 
@@ -459,9 +464,10 @@ def test_legacy_fsp_averages_unique_hydro_ecdf_queries_not_raw_samples():
     geo_pressures = np.array([10.0, 20.0, 30.0, 40.0])
     hydro_pressures = np.array([5.0, 12.0, 24.0, 45.0])
 
-    # Unique ecdf x [5, 5, 12, 24, 45] → lookups [0, 0, 0, 0.5, 1] → 0.30
-    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.30)
-    assert displayed_legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.30)
+    # Unique ecdf x [5, 5, 12, 24, 45] → lookups [.25, .25, .25, .5, 1] → 0.45
+    # (verified against MATLAB R2012b calcFaultFSP).
+    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.45)
+    assert displayed_legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.45)
 
 
 def test_legacy_fsp_treats_non_finite_hydro_as_zero_psi():
@@ -469,9 +475,9 @@ def test_legacy_fsp_treats_non_finite_hydro_as_zero_psi():
     hydro_pressures = np.array([np.inf, np.nan, 25.0])
 
     assert np.allclose(_matlab_hydro_ecdf_queries(hydro_pressures), [0.0, 0.0, 25.0])
-    assert np.allclose(legacy_fsp_probabilities(geo_pressures, hydro_pressures), [0.0, 0.0, 1.0])
-    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(1.0 / 3.0)
-    assert displayed_legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.33)
+    assert np.allclose(legacy_fsp_probabilities(geo_pressures, hydro_pressures), [0.5, 0.5, 1.0])
+    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(2.0 / 3.0)
+    assert displayed_legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.67)
 
 
 def test_legacy_fsp_returns_zero_for_empty_hydro():
@@ -490,10 +496,10 @@ def test_combined_slip_potential_averages_legacy_lookup_probabilities():
 
     rows, probabilities = _combined_slip_potential_rows(["A"], pressure_groups, geo_groups, 2025)
 
-    assert probabilities["A"] == pytest.approx(0.30)
+    assert probabilities["A"] == pytest.approx(0.45)
     assert rows[0]["ID"] == "A"
     assert rows[0]["slip_pressure"] == pytest.approx(25.0)
-    assert rows[0]["probability"] == pytest.approx(0.30)
+    assert rows[0]["probability"] == pytest.approx(0.45)
     assert rows[0]["Pressure"] == pytest.approx(21.5)
     assert rows[0]["Year"] == 2025
 
@@ -536,8 +542,9 @@ def test_summary_fsp_uses_legacy_lookup_for_probabilistic_hydrology():
 
     fsp_df = _calculate_summary_fsp(geo_cdf_df, hydro_df)
 
-    # Unique ecdf x [5, 5, 12, 45] → lookups [0, 0, 0, 1] → 0.25
-    assert fsp_df.loc[0, "FSP"] == pytest.approx(0.25)
+    # Unique ecdf x [5, 5, 12, 45] → lookups [.25, .25, .25, 1] → 0.4375,
+    # displayed as 0.44 (verified against MATLAB R2012b calcFaultFSP).
+    assert fsp_df.loc[0, "FSP"] == pytest.approx(0.44)
 
 
 def test_step5_step6_and_cdf_graph_use_the_same_displayed_fsp():
@@ -568,7 +575,7 @@ def test_step5_step6_and_cdf_graph_use_the_same_displayed_fsp():
     with open(scientific_path, encoding="utf-8") as scientific_file:
         scientific_source = scientific_file.read()
 
-    assert expected == pytest.approx(0.30)
+    assert expected == pytest.approx(0.45)
     assert step5_probabilities["A"] == pytest.approx(expected)
     assert step6_df.loc[0, "FSP"] == pytest.approx(expected)
     assert "displayed_legacy_fsp" in scientific_source
@@ -744,3 +751,22 @@ def test_variable_fsp_demo_csvs_have_expected_schema_and_calibration():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_legacy_fsp_matches_matlab_r2012b_for_partially_critical_fault():
+    # Two of ten MC runs are already past failure (negative pressure to slip).
+    # MATLAB R2012b calcFaultFSP gives 0.26; first-duplicate logic gave 0.14.
+    geo_pressures = [-3.0, -1.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]
+    hydro_pressures = [0.3, 0.3, 0.5, 1.2, 3.1]
+
+    lookup_pressures, lookup_probabilities = _matlab_ecdf_lookup(geo_pressures)
+    assert np.allclose(lookup_pressures, [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0])
+    assert np.allclose(lookup_probabilities, [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+    assert legacy_fsp(geo_pressures, hydro_pressures) == pytest.approx(0.26)
+
+
+def test_legacy_ecdf_lookup_keeps_cdf_of_duplicated_minimum():
+    # R2012b: ecdf([2 4 6 8]) then unique keeps (2, 0.25), not the leading (2, 0).
+    lookup_pressures, lookup_probabilities = _matlab_ecdf_lookup([2.0, 4.0, 6.0, 8.0])
+    assert np.allclose(lookup_pressures, [2.0, 4.0, 6.0, 8.0])
+    assert np.allclose(lookup_probabilities, [0.25, 0.5, 0.75, 1.0])
