@@ -106,7 +106,7 @@ def _calculate_fsp(geo_cdf_df: pd.DataFrame,
             fsp = displayed_legacy_fsp(geo_p, fault_pressures)
             rows.append({"ID": str(fid), "Year": int(yr), "FSP": fsp, "epoch_time": epoch})
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["ID", "Year", "FSP", "epoch_time"])
 
 
 def _fault_summary_for_year(

@@ -826,5 +826,63 @@ class TestScientificGraphArtifacts:
         assert "border-radius: 8px" in html
 
 
+def _dataset_param(name, value):
+    return {"ProcessStepParameterName": name, "Value": value, "DataType": 4}
+
+
+def _float_param(name, value):
+    return {"ProcessStepParameterName": name, "Value": value, "DataType": 1}
+
+
+def test_deterministic_geomechanics_step_preserves_zero_padded_fault_ids(tmp_path, monkeypatch):
+    import json
+    import fsp_step2
+
+    faults_path = tmp_path / "faults.csv"
+    faults_path.write_text(
+        "FaultID,Latitude(WGS84),Longitude(WGS84),Strike,Dip,LengthKm\n"
+        "001,32.416069,-97.145569,46.6,73.2,1.68768\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "args.json").write_text(json.dumps({
+        "DatasetPaths": {"1": str(faults_path)},
+        "SessionState": {"StepState": [
+            {"InputParameterStates": [], "OutputParameterStates": [], "Messages": []},
+            {
+                "InputParameterStates": [
+                    _float_param("reference_depth", "11000"),
+                    _float_param("vertical_stress", "1.1"),
+                    _float_param("max_horizontal_stress", "1.22"),
+                    _float_param("min_horizontal_stress", "0.693"),
+                    _float_param("max_stress_azimuth", "70"),
+                    _float_param("pore_pressure", "0.43"),
+                    _float_param("aphi_value", ""),
+                    {"ProcessStepParameterName": "stress_field_mode", "Value": "all_gradients", "DataType": 7},
+                    _float_param("friction_coefficient", "0.58"),
+                    _dataset_param("faults_model_inputs_output", 1),
+                ],
+                "OutputParameterStates": [
+                    {"ProcessStepParameterName": "stress_model_type", "Value": None, "DataType": 3},
+                    _dataset_param("det_geomechanics_results", ""),
+                ],
+                "Messages": [],
+            },
+        ]},
+    }), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["fsp_step2.py", str(tmp_path)])
+
+    fsp_step2.main()
+
+    results = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    step = results["SessionState"]["StepState"][1]
+    assert step["Success"] is True
+    det_path = next(
+        p["Value"] for p in step["OutputParameterStates"]
+        if p["ProcessStepParameterName"] == "det_geomechanics_results"
+    )
+    det_df = pd.read_csv(det_path, dtype=str)
+    assert det_df["FaultID"].tolist() == ["001"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

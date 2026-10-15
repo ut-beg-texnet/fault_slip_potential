@@ -112,7 +112,7 @@ def main():
         faults_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP, "faults_model_inputs_output")
         if faults_path is None:
             raise ValueError("No faults dataset provided.")
-        faults_df = pd.read_csv(faults_path)
+        faults_df = pd.read_csv(faults_path, dtype={"FaultID": str})
         if faults_df.empty:
             raise ValueError("A fault dataset is required to run deterministic geomechanics. Skip this step for injection-pressure-only runs.")
 

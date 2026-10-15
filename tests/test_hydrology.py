@@ -527,6 +527,30 @@ def test_summary_fsp_returns_empty_frame_without_geomechanics_cdf():
     assert not _step6_has_geomechanics_cdf(pd.DataFrame())
 
 
+def test_summary_fsp_keeps_columns_when_no_fault_ids_match():
+    # A geomechanics CDF whose IDs match no hydrology fault (e.g. "001" vs "1")
+    # used to yield a column-less frame, and the summary then raised KeyError 'Year'.
+    geo_cdf_df = pd.DataFrame({
+        "ID": ["001", "001"],
+        "slip_pressure": [10.0, 20.0],
+        "probability": [0.5, 1.0],
+    })
+    hydro_df = pd.DataFrame({
+        "ID": ["1"],
+        "Pressure": [25.0],
+        "Year": [2035],
+    })
+
+    fsp_df = _calculate_summary_fsp(geo_cdf_df, hydro_df)
+    summary = _fault_summary_for_year(
+        pd.DataFrame({"FaultID": ["1"]}), fsp_df, hydro_df, 2035, include_fsp=True,
+    )
+
+    assert list(fsp_df.columns) == ["ID", "Year", "FSP", "epoch_time"]
+    assert fsp_df.empty
+    assert summary.loc[0, "summary_pressure"] == pytest.approx(25.0)
+
+
 def test_summary_fsp_uses_legacy_lookup_for_probabilistic_hydrology():
     geo_cdf_df = pd.DataFrame({
         "ID": ["A", "A", "A", "A"],

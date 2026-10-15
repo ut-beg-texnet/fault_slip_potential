@@ -639,7 +639,7 @@ def main():
 
         # ---- Load deterministic results for CDF colours ----
         det_path = helper.getDatasetFilePathWithStepIndexAndParamName(STEP_PREV, "det_geomechanics_results")
-        det_df = pd.read_csv(det_path) if det_path else pd.DataFrame()
+        det_df = pd.read_csv(det_path, dtype={"FaultID": str, "ID": str}) if det_path else pd.DataFrame()
 
         report_progress("Building probability curves")
         cdf_df = _prob_geomechanics_cdf(mc_results, det_df)
