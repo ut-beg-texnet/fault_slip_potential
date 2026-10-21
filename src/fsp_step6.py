@@ -171,6 +171,19 @@ def _summary_map_field_labels(year_of_interest: int) -> dict:
         "summary_pressure": f"Pressure Change {year_of_interest}",
     }
 
+def _time_series_well_data(well_info, inj_type, end_year, extrapolate_injection_rates):
+    """Build well rate histories that cover every year of the summary time series.
+
+    Each year is evaluated at Dec 31 of the previous year, so the rate history must
+    reach the last analysed year. Truncating at the year of interest instead would
+    carry the last rate step past it and hide post-shut-in pressure diffusion.
+    """
+    return normalize_wells_to_well_data(
+        well_info, inj_type, date(end_year - 1, 12, 31),
+        extrapolate_injection_rates=extrapolate_injection_rates,
+    )
+
+
 def _run_deterministic_hydro_time_series(STRho, well_data_list, fault_df, years_to_analyze):
     """Re-run deterministic hydrology for all years (used when model_run=0)."""
     fault_lats = fault_df["Latitude(WGS84)"].values.astype(float)
@@ -296,16 +309,14 @@ def main():
             helper.addMessageWithStepIndex(STEP, year_message, 1)
         years_to_analyze = list(range(start_year, end_year + 1))
 
-        cutoff_date = date(year_of_interest - 1, 12, 31)
         well_info = preprocess_well_data(inj_df, inj_type)
         extrapolate_injection_rates = resolve_extrapolate_injection_rates(
             helper.getParameterValueWithStepIndexAndParamName,
             STEP,
             inj_type,
         )
-        well_data_list = normalize_wells_to_well_data(
-            well_info, inj_type, cutoff_date,
-            extrapolate_injection_rates=extrapolate_injection_rates,
+        well_data_list = _time_series_well_data(
+            well_info, inj_type, end_year, extrapolate_injection_rates,
         )
 
         # ---- Load fault data ----

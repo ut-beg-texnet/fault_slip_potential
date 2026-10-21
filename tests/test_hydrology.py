@@ -49,8 +49,10 @@ from fsp_step6 import (
     _calculate_fsp as _calculate_summary_fsp,
     _fault_summary_for_year,
     _has_geomechanics_cdf as _step6_has_geomechanics_cdf,
+    _run_deterministic_hydro_time_series,
     _summary_map_configuration,
     _summary_map_field_labels,
+    _time_series_well_data,
 )
 from graphs.artifacts import FSP_COLOR_SCALE, SLIP_PRESSURE_COLOR_SCALE
 
@@ -665,6 +667,84 @@ def test_summary_fault_values_use_only_the_selected_year():
     assert summary.loc["B", "summary_fsp"] == pytest.approx(0.4)
     assert summary.loc["C", "summary_fsp"] == pytest.approx(0.0)
     assert summary.loc["C", "summary_pressure"] == pytest.approx(0.0)
+
+
+def _shut_in_summary_inputs():
+    """One monthly well injecting 2020-01..2022-12, then shut in; one fault ~1 km away."""
+    wells = pd.DataFrame([
+        {
+            "WellID": "well-1",
+            "Latitude(WGS84)": 31.20,
+            "Longitude(WGS84)": -103.70,
+            "Year": year,
+            "Month": month,
+            "InjectionRate(bbl/month)": 300000.0,
+        }
+        for year in (2020, 2021, 2022)
+        for month in range(1, 13)
+    ])
+    faults = pd.DataFrame({
+        "FaultID": ["fault-1"],
+        "Latitude(WGS84)": [31.209],
+        "Longitude(WGS84)": [-103.70],
+    })
+    year_of_interest, start_year, end_year = normalize_year_of_interest(
+        2021, date(2020, 1, 1), date(2022, 12, 31)
+    )
+    return preprocess_well_data(wells, "monthly_fsp"), faults, year_of_interest, start_year, end_year
+
+
+def test_summary_time_series_diffuses_after_shut_in_past_year_of_interest():
+    well_info, faults, year_of_interest, start_year, end_year = _shut_in_summary_inputs()
+    years = list(range(start_year, end_year + 1))
+    STRho = calcST(100.0, 0.1, 200.0, 1000.0, 8e-4, 9.81, 3.6e-10, 1.08e-9)
+
+    pressure = _run_deterministic_hydro_time_series(
+        STRho,
+        _time_series_well_data(well_info, "monthly_fsp", end_year, False),
+        faults,
+        years,
+    ).set_index("Year")["Pressure"]
+
+    # 2023 is evaluated at 2022-12-31, the last injection day; later years only diffuse.
+    assert pressure[2023] > pressure[2024] > pressure[2025]
+
+    # Years up to the year of interest match a rate history truncated there.
+    truncated = normalize_wells_to_well_data(
+        well_info, "monthly_fsp", date(year_of_interest - 1, 12, 31),
+        extrapolate_injection_rates=False,
+    )
+    truncated_pressure = _run_deterministic_hydro_time_series(
+        STRho, truncated, faults, years
+    ).set_index("Year")["Pressure"]
+    head = [yr for yr in years if yr <= year_of_interest]
+    assert pressure[head].tolist() == truncated_pressure[head].tolist()
+
+
+def test_summary_monte_carlo_time_series_diffuses_after_shut_in():
+    well_info, faults, _, start_year, end_year = _shut_in_summary_inputs()
+    params = HydrologyParams(
+        aquifer_thickness=100.0,
+        porosity=0.1,
+        permeability=200.0,
+        fluid_density=1000.0,
+        dynamic_viscosity=8e-4,
+        fluid_compressibility=3.6e-10,
+        rock_compressibility=1.08e-9,
+        plus_minus={},
+        n_iterations=4,
+    )
+
+    pressure = run_hydrology_mc_time_series(
+        params,
+        _time_series_well_data(well_info, "monthly_fsp", end_year, False),
+        faults,
+        list(range(start_year, end_year + 1)),
+        n_jobs=1,
+        result_mode="mean",
+    ).set_index("Year")["Pressure"]
+
+    assert pressure[2023] > pressure[2024] > pressure[2025]
 
 
 def test_summary_map_configuration_colors_fsp_on_fixed_probability_range():
