@@ -14,6 +14,8 @@ from ..geomechanics.stress import calculate_absolute_stresses
 from ..geomechanics.slip import (
     calculate_fault_effective_stresses,
     ComputeCriticalPorePressureForFailure,
+    fold_dip_degrees,
+    wrap_strike_degrees,
 )
 
 
@@ -118,24 +120,23 @@ def run_geomechanics_mc(stress_inputs: dict, faults_df: pd.DataFrame,
     mu_unc = _unc("friction_coefficient_uncertainty")
 
     # shape: (n_faults, n_sims)
+    # MATLAB monte_carlo.m samples base +/- delta unbounded; wrapping strike and
+    # folding dip keep those exact results while staying in [0, 360) and [0, 90].
     if strike_unc > 0:
-        strike_lo = (strike_base[:, None] - strike_unc) % 360.0
-        strike_hi = (strike_base[:, None] + strike_unc) % 360.0
-        # simplified: if no wrap needed just uniform
-        strikes_mc = np.random.uniform(
-            np.maximum(strike_base[:, None] - strike_unc, 0.0),
-            np.minimum(strike_base[:, None] + strike_unc, 360.0),
+        strikes_mc = wrap_strike_degrees(np.random.uniform(
+            strike_base[:, None] - strike_unc,
+            strike_base[:, None] + strike_unc,
             (n_faults, n_sims)
-        )
+        ))
     else:
         strikes_mc = np.tile(strike_base[:, None], (1, n_sims))
 
     if dip_unc > 0:
-        dips_mc = np.random.uniform(
-            np.maximum(dip_base[:, None] - dip_unc, 0.0),
-            np.minimum(dip_base[:, None] + dip_unc, 90.0),
+        dips_mc = fold_dip_degrees(np.random.uniform(
+            dip_base[:, None] - dip_unc,
+            dip_base[:, None] + dip_unc,
             (n_faults, n_sims)
-        )
+        ))
     else:
         dips_mc = np.tile(dip_base[:, None], (1, n_sims))
 

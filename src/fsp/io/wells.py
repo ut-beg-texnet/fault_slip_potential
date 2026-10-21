@@ -262,6 +262,9 @@ def _monthly_step_series(
     Gap months are rate 0. Consecutive listed months with the same volume keep the
     first month's bbl/day. When extrapolate_injection_rates is False, a trailing 0
     starts at the month after the last data month.
+
+    The last data month comes from the full record, not just months up to the
+    cutoff, so a gap spanning the cutoff stays at 0 instead of being extrapolated.
     """
     included = {
         key: volume
@@ -271,7 +274,7 @@ def _monthly_step_series(
     if not included:
         return np.array([]), np.array([])
 
-    last_data_key = max(included)
+    last_data_key = max(volume_by_month)
     last_data_month = date(last_data_key[0], last_data_key[1], 1)
     current = date(min(included)[0], min(included)[1], 1)
 

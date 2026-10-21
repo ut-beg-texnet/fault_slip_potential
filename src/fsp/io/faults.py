@@ -23,15 +23,18 @@ def generate_randomized_faults(num: int,
     Port of Julia generate_randomized_faults_csv.
     Fault centroids are placed within ~15 km of (center_lat, center_lon).
     """
+    # MATLAB checkdata.m rejects these ranges rather than clamping them.
+    if strike_max < strike_min:
+        raise ValueError("Check fault strike ranges")
+    if dip_max < dip_min or min(dip_min, dip_max) < 0 or max(dip_min, dip_max) > 90:
+        raise ValueError(f"Check fault dip ranges: min {dip_min:g} and max {dip_max:g}")
+
     strike_lo = max(strike_min, 0.0)
     strike_hi = min(strike_max, 360.0)
-    dip_lo = max(dip_min, 0.0)
-    dip_hi = min(dip_max, 90.0)
-
     if strike_lo > strike_hi:
-        raise ValueError("Strike lower bound > upper bound")
-    if dip_lo > dip_hi:
-        raise ValueError("Dip lower bound > upper bound")
+        raise ValueError("Check fault strike ranges")
+    dip_lo = dip_min
+    dip_hi = dip_max
 
     strikes = np.random.uniform(strike_lo, strike_hi, num)
     dips = np.random.uniform(dip_lo, dip_hi, num)

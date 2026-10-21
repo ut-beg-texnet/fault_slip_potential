@@ -21,6 +21,7 @@ from fsp.geomechanics.slip import (
     calculate_scu,
 )
 from fsp.geomechanics.mohr import mohr_diagram_data_to_d3_portal
+from fsp.geomechanics.validation import validate_shmax_gradient, validate_stress_inputs
 from graphs.leaflet_map import (
     DETERMINISTIC_GEOMECHANICS_FIELD_LABELS,
     save_fault_results_map_artifact,
@@ -104,6 +105,7 @@ def main():
         # Validation
         if stress_inputs["aphi_value"] is not None and stress_inputs["max_horizontal_stress"] is not None:
             raise ValueError("Aphi value and Max Horizontal Stress Gradient cannot both be provided")
+        validate_stress_inputs(stress_inputs, friction, stress_model_type)
 
         # Store model type as output parameter
         helper.setParamValueWithStepIndexAndParamName(STEP, "stress_model_type", stress_model_type)
@@ -121,6 +123,7 @@ def main():
         stress_state, p0 = calculate_absolute_stresses(stress_inputs, friction, stress_model_type)
 
         sV, sh, sH = stress_state.principal_stresses
+        validate_shmax_gradient(sH, stress_inputs["reference_depth"], stress_model_type)
 
         # ---- Analyse all faults — vectorised over the full fault array ----
         strikes = faults_df["Strike"].to_numpy(dtype=float)

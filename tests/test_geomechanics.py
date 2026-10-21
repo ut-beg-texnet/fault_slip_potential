@@ -20,11 +20,20 @@ from fsp.geomechanics.slip import (
     calculate_fault_effective_stresses,
     ComputeCriticalPorePressureForFailure,
     analyze_fault,
+    fold_dip_degrees,
+    wrap_strike_degrees,
 )
 from fsp.geomechanics.mohr import mohr_diagram_hydro_data_to_d3
+from fsp.geomechanics.validation import (
+    validate_geomechanics_uncertainties,
+    validate_shmax_gradient,
+    validate_stress_inputs,
+)
+from fsp.io.faults import generate_randomized_faults
 from fsp.monte_carlo.geomechanics_mc import run_geomechanics_mc
 from fsp_step3 import (
     PROBABILISTIC_GEOMECHANICS_FIELD_LABELS,
+    _bounded_fault_array,
     _mc_uncertainty_sensitivity_data,
     _prob_geomechanics_cdf,
     _probabilistic_geomechanics_fault_map_data,
@@ -158,6 +167,136 @@ class TestCalculateAbsoluteStresses:
         assert abs(state.principal_stresses[1] - state.principal_stresses[2]) < 0.1
 
 
+def _valid_stress_inputs(**overrides):
+    inputs = {
+        "reference_depth": REFERENCE_DEPTH_FT,
+        "vertical_stress": VERTICAL_STRESS_PSI_FT,
+        "pore_pressure": PORE_PRESSURE_PSI_FT,
+        "max_stress_azimuth": MAX_STRESS_AZIMUTH_DEG,
+        "min_horizontal_stress": MIN_HORIZONTAL_STRESS_PSI_FT,
+        "max_horizontal_stress": MAX_HORIZONTAL_STRESS_PSI_FT,
+        "aphi_value": None,
+    }
+    inputs.update(overrides)
+    return inputs
+
+
+class TestValidateStressInputs:
+    # MATLAB checkdata.m rejections, one per row.
+    @pytest.mark.parametrize("model, overrides, friction, message", [
+        ("gradients", {"vertical_stress": 0.0}, FRICTION_COEFFICIENT, "Check stress gradients"),
+        ("gradients", {"min_horizontal_stress": -0.1}, FRICTION_COEFFICIENT, "Check stress gradients"),
+        ("gradients", {"min_horizontal_stress": 1.2}, FRICTION_COEFFICIENT, "Check horizontal stress gradients"),
+        ("aphi_no_min", {"vertical_stress": 0.0, "aphi_value": APHI_VALUE}, FRICTION_COEFFICIENT,
+         "Check vertical stress gradient"),
+        ("aphi_no_min", {"aphi_value": 3.1}, FRICTION_COEFFICIENT, "Check A-Phi parameter value"),
+        ("aphi_min", {"aphi_value": APHI_VALUE, "min_horizontal_stress": 0.0}, FRICTION_COEFFICIENT,
+         "Check minimum horizontal stress gradient"),
+        ("gradients", {"max_stress_azimuth": 360.0}, FRICTION_COEFFICIENT, "Check horizontal stress direction"),
+        ("gradients", {"reference_depth": 0.0}, FRICTION_COEFFICIENT, "Check reference depth"),
+        ("gradients", {"pore_pressure": 0.0}, FRICTION_COEFFICIENT, "Check initial reservoir pressure gradient"),
+        ("gradients", {"vertical_stress": 1.6, "max_horizontal_stress": 1.7}, FRICTION_COEFFICIENT,
+         "Check vertical stress gradient value"),
+        ("gradients", {}, 0.0, "Check friction coefficient"),
+    ])
+    def test_rejects(self, model, overrides, friction, message):
+        with pytest.raises(ValueError, match=message):
+            validate_stress_inputs(_valid_stress_inputs(**overrides), friction, model)
+
+    def test_accepts_valid_gradients(self):
+        validate_stress_inputs(_valid_stress_inputs(), FRICTION_COEFFICIENT, "all_gradients")
+
+    def test_accepts_valid_aphi(self):
+        inputs = _valid_stress_inputs(aphi_value=APHI_VALUE, max_horizontal_stress=None,
+                                      min_horizontal_stress=None)
+        validate_stress_inputs(inputs, FRICTION_COEFFICIENT, "aphi_no_min")
+
+    def test_equal_horizontal_gradients_allowed(self):
+        inputs = _valid_stress_inputs(min_horizontal_stress=0.9, max_horizontal_stress=0.9)
+        validate_stress_inputs(inputs, FRICTION_COEFFICIENT, "gradients")
+
+
+class TestValidateShmaxGradient:
+    @pytest.mark.parametrize("model, message", [
+        ("gradients", "Check horizontal stress gradient value"),
+        ("aphi_min", "Check minimum horizontal stress gradient value"),
+        ("aphi_no_min", "Calculated horizontal stresses too high"),
+    ])
+    def test_rejects_above_8_psi_per_ft(self, model, message):
+        with pytest.raises(ValueError, match=message):
+            validate_shmax_gradient(8.01 * REFERENCE_DEPTH_FT, REFERENCE_DEPTH_FT, model)
+
+    def test_accepts_8_psi_per_ft(self):
+        validate_shmax_gradient(8.0 * REFERENCE_DEPTH_FT, REFERENCE_DEPTH_FT, "gradients")
+
+
+class TestValidateGeomechanicsUncertainties:
+    LABELS = {"friction_coefficient_uncertainty": "Friction Coeff", "aphi_value_uncertainty": "APhi Value"}
+
+    def test_rejects_negative_uncertainty(self):
+        with pytest.raises(ValueError, match="negative or non-number"):
+            validate_geomechanics_uncertainties(
+                _valid_stress_inputs(), FRICTION_COEFFICIENT, {"strike_angles_uncertainty": -1.0}, {}
+            )
+
+    def test_rejects_uncertainty_equal_to_base(self):
+        # MATLAB uses >=, so the lower bound may not reach 0.
+        with pytest.raises(ValueError, match="Friction Coeff"):
+            validate_geomechanics_uncertainties(
+                _valid_stress_inputs(), FRICTION_COEFFICIENT,
+                {"friction_coefficient_uncertainty": FRICTION_COEFFICIENT}, self.LABELS,
+            )
+        with pytest.raises(ValueError, match="not smaller than the deterministic value"):
+            validate_geomechanics_uncertainties(
+                _valid_stress_inputs(), FRICTION_COEFFICIENT,
+                {"vertical_stress_gradient_uncertainty": VERTICAL_STRESS_PSI_FT}, {},
+            )
+
+    def test_accepts_uncertainty_just_below_base(self):
+        validate_geomechanics_uncertainties(
+            _valid_stress_inputs(), FRICTION_COEFFICIENT,
+            {
+                "friction_coefficient_uncertainty": FRICTION_COEFFICIENT - 0.01,
+                "min_horizontal_stress_uncertainty": MIN_HORIZONTAL_STRESS_PSI_FT - 0.01,
+                "strike_angles_uncertainty": 400.0,  # angles have no base-value limit
+            },
+            {},
+        )
+
+    def test_rejects_aphi_above_3(self):
+        with pytest.raises(ValueError, match="greater than 3"):
+            validate_geomechanics_uncertainties(
+                _valid_stress_inputs(aphi_value=2.5), FRICTION_COEFFICIENT,
+                {"aphi_value_uncertainty": 0.6}, self.LABELS,
+            )
+
+    def test_skips_missing_and_hidden_uncertainties(self):
+        # aphi_no_min has no Shmin field (MATLAB noshow), so it is never in the dict;
+        # None means not entered.
+        inputs = _valid_stress_inputs(aphi_value=APHI_VALUE, min_horizontal_stress=None,
+                                      max_horizontal_stress=None)
+        validate_geomechanics_uncertainties(
+            inputs, FRICTION_COEFFICIENT,
+            {"aphi_value_uncertainty": None, "dip_angles_uncertainty": 5.0}, {},
+        )
+
+
+class TestRandomizedFaultRanges:
+    @pytest.mark.parametrize("strike, dip, message", [
+        ((0.0, 90.0), (80.0, 95.0), "Check fault dip ranges"),
+        ((0.0, 90.0), (-5.0, 30.0), "Check fault dip ranges"),
+        ((0.0, 90.0), (60.0, 40.0), "Check fault dip ranges"),
+        ((90.0, 10.0), (40.0, 60.0), "Check fault strike ranges"),
+    ])
+    def test_rejects_matlab_invalid_ranges(self, strike, dip, message):
+        with pytest.raises(ValueError, match=message):
+            generate_randomized_faults(3, strike[0], strike[1], dip[0], dip[1])
+
+    def test_valid_ranges_generate_faults_inside_bounds(self):
+        faults = generate_randomized_faults(50, 10.0, 40.0, 60.0, 90.0)
+        assert faults["Dip"].between(60.0, 90.0).all()
+
+
 class TestFaultEffectiveStresses:
     def setup_method(self):
         # Absolute stresses from the regression default gradients.
@@ -269,6 +408,48 @@ def _mc_inputs():
         "friction_coefficient_uncertainty": 0.02,
     }
     return stress_data, faults, uncertainties
+
+
+class TestStrikeDipWrapping:
+    def test_helpers(self):
+        np.testing.assert_allclose(fold_dip_degrees(np.array([95.0, -5.0, 90.0, 45.0])), [85.0, 5.0, 90.0, 45.0])
+        np.testing.assert_allclose(wrap_strike_degrees(np.array([-10.0, 365.0])), [350.0, 5.0])
+
+    def test_folded_dip_gives_identical_stresses(self):
+        # The fold assumption: only sin(dip) enters the fault normal.
+        state = StressState(np.array([SV_PSI, SHMIN_PSI, SHMAX_PSI]), MAX_STRESS_AZIMUTH_DEG)
+        for raw, folded in [(95.0, 85.0), (-10.0, 10.0)]:
+            sig_raw, tau_raw, *_ = calculate_fault_effective_stresses(30.0, raw, state, P0_PSI, 0.0)
+            sig_fold, tau_fold, *_ = calculate_fault_effective_stresses(30.0, folded, state, P0_PSI, 0.0)
+            assert float(sig_raw) == pytest.approx(float(sig_fold))
+            assert float(tau_raw) == pytest.approx(float(tau_fold))
+
+    def _sampled_geometry(self, strike, dip, strike_unc, dip_unc):
+        stress_data, _, _ = _mc_inputs()
+        faults = pd.DataFrame({"FaultID": ["A"], "Strike": [strike], "Dip": [dip]})
+        uncertainties = {"strike_angles_uncertainty": strike_unc, "dip_angles_uncertainty": dip_unc}
+        _, samples = run_geomechanics_mc(
+            stress_data, faults, 20000, uncertainties, "gradients", FRICTION_COEFFICIENT,
+            random_seed=7, return_sample_inputs=True,
+        )
+        return samples["strike_angle"].to_numpy(), samples["dip_angle"].to_numpy()
+
+    def test_strike_near_north_wraps_like_matlab(self):
+        strikes, _ = self._sampled_geometry(5.0, 60.0, 15.0, 0.0)
+        # MATLAB samples U(-10, 20): one third lands in [350, 360).
+        assert np.mean(strikes >= 350.0) == pytest.approx(1.0 / 3.0, abs=0.02)
+        assert not np.any((strikes > 20.0) & (strikes < 350.0))
+
+    def test_dip_near_vertical_folds_like_matlab(self):
+        _, dips = self._sampled_geometry(30.0, 85.0, 0.0, 10.0)
+        # MATLAB samples U(75, 95), and 95 acts like 85: P(dip > 85) = 0.5, not 1/3.
+        assert dips.max() <= 90.0
+        assert np.mean(dips > 85.0) == pytest.approx(0.5, abs=0.02)
+
+    def test_tornado_dip_folds_at_vertical(self):
+        base = np.array([90.0])
+        np.testing.assert_allclose(_bounded_fault_array("Dip", base, -10.0), [80.0])
+        np.testing.assert_allclose(_bounded_fault_array("Dip", base, 10.0), [80.0])
 
 
 class TestGeomechanicsMonteCarloMetadata:

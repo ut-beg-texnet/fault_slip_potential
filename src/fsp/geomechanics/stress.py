@@ -147,7 +147,7 @@ def calculate_absolute_stresses(stress_data: dict, friction_coefficient: float, 
         # Equal gradients are allowed. A-Phi modes are not checked here because
         # SHmax is calculated rather than entered.
         if float(sh_grad) > float(sH_grad):
-            raise ValueError("Minimum horizontal stress gradient must not exceed maximum horizontal stress gradient")
+            raise ValueError("Check horizontal stress gradients")
         sH = round(sH_grad * reference_depth, 2)
         sh = round(sh_grad * reference_depth, 2)
 

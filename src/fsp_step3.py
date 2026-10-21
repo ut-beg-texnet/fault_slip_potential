@@ -15,9 +15,14 @@ import pandas as pd
 from TexNetWebToolGPWrappers import TexNetWebToolLaunchHelper
 from fsp.monte_carlo.geomechanics_mc import run_geomechanics_mc
 from fsp.geomechanics.stress import calculate_absolute_stresses
+from fsp.geomechanics.validation import (
+    validate_geomechanics_uncertainties,
+    validate_stress_inputs,
+)
 from fsp.geomechanics.slip import (
     calculate_fault_effective_stresses,
     ComputeCriticalPorePressureForFailure,
+    fold_dip_degrees,
 )
 from graphs.scientific import (
     save_cdf_artifact,
@@ -244,7 +249,7 @@ def _bounded_parameter_value(parameter_key: str, base_value: float, delta: float
     if parameter_key == "Strike":
         return updated_value % 360.0
     if parameter_key == "Dip":
-        return float(np.clip(updated_value, 0.0, 90.0))
+        return float(fold_dip_degrees(updated_value))
     return max(updated_value, 0.0)
 
 
@@ -286,7 +291,7 @@ def _bounded_fault_array(parameter_key: str, base_array: np.ndarray, delta: floa
     if parameter_key == "Strike":
         return np.mod(updated, 360.0)
     if parameter_key == "Dip":
-        return np.clip(updated, 0.0, 90.0)
+        return fold_dip_degrees(updated)
     return np.maximum(updated, 0.0)
 
 
@@ -612,6 +617,14 @@ def main():
                 "dip_angles_uncertainty": _p("dip_angles_uncertainty"),
                 "friction_coefficient_uncertainty": _p("friction_coefficient_uncertainty"),
             }
+
+        validate_stress_inputs(stress_inputs, friction, stress_model_type)
+        validate_geomechanics_uncertainties(
+            stress_inputs,
+            friction,
+            uncertainties,
+            {key: label for key, (_column, label) in SENSITIVITY_PARAMETERS.items()},
+        )
 
         # ---- Load faults ----
         report_progress("Loading fault data")

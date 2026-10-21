@@ -10,6 +10,22 @@ from ..models.stress import StressState
 DEG2RAD = np.pi / 180.0
 
 
+def wrap_strike_degrees(strike):
+    """Wrap strike angles into [0, 360); stresses repeat every 360 degrees."""
+    return np.mod(strike, 360.0)
+
+
+def fold_dip_degrees(dip):
+    """Fold dip angles into [0, 90].
+
+    The fault normal only uses sin(dip) (n3 is unused, as in MATLAB mohrs_3D.m) and
+    the resolved stresses are quadratic in the normal, so 90+x behaves like 90-x and
+    -x like x. Folding therefore matches MATLAB's unbounded base +/- delta sampling.
+    """
+    dip = np.abs(dip)
+    return np.where(dip > 90.0, 180.0 - dip, dip)
+
+
 def calculate_fault_effective_stresses(strike, dip, stress_state: StressState, p0, dp):
     """Calculate normal and shear stresses on fault plane.
 

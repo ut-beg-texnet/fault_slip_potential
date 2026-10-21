@@ -150,6 +150,31 @@ class TestMonthlyRateSeries:
         assert well.rates[0] == pytest.approx(31000.0 / 31.0)
         assert 99999.0 / 31.0 not in well.rates
 
+    def test_extrapolate_does_not_fill_gap_spanning_cutoff(self):
+        # MATLAB SpreadsheetStrings2WellData.m zero-fills gaps and only extrapolates
+        # after the well's true last month (May 2020 here), not the last month
+        # before the cutoff.
+        rows = [("W1", 2019, month, 31000.0) for month in range(1, 7)]
+        rows += [("W1", 2020, 4, 30000.0), ("W1", 2020, 5, 31000.0)]
+        well = _normalize(rows, date(2019, 12, 31), extrapolate=True)[0]
+
+        jul_1_day = float((date(2019, 7, 1) - date(2019, 1, 1)).days + 1)
+        assert well.days[-1] == pytest.approx(jul_1_day)
+        assert well.rates[-1] == pytest.approx(0.0)
+
+    def test_gap_steps_match_later_cutoff_up_to_earlier_cutoff(self):
+        # Step 4/5 (year-of-interest cutoff) and Step 6 (end-of-series cutoff)
+        # must agree on the rate history before the earlier cutoff.
+        rows = [("W1", 2019, month, 31000.0) for month in range(1, 7)]
+        rows += [("W1", 2020, 4, 30000.0), ("W1", 2020, 5, 31000.0)]
+        early = _normalize(rows, date(2019, 12, 31), extrapolate=True)[0]
+        late = _normalize(rows, date(2021, 12, 31), extrapolate=True)[0]
+
+        early_cutoff_day = float((date(2019, 12, 31) - date(2019, 1, 1)).days + 1)
+        keep = late.days <= early_cutoff_day
+        np.testing.assert_allclose(early.days, late.days[keep])
+        np.testing.assert_allclose(early.rates, late.rates[keep])
+
     def test_leap_year_february_uses_29_days(self):
         wells = _normalize(
             [("W1", 2020, 2, 2900.0)],
