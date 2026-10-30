@@ -22,6 +22,25 @@ FSP is a tool developed to screen faults near injection wells and estimate the p
 3. **Hydrology Model**: The hydrology model assesses specific injection scenarios, providing pore pressure changes to be used in the fault slip analysis.
 4. **Results**: FSP produces visual outputs including Mohr diagrams, fault maps, and cumulative distribution functions (CDF) of fault slip probability.
 
+### Requirements
+
+- **Python:** 3.14.8 (Windows x64)
+- **Packages:** `requirements.txt` pins the direct dependencies; `requirements-lock.txt` is the full `pip freeze` of the venv.
+
+The venv is named `fsp_python_14_venv` and lives at the repo root (it is git-ignored).
+
+```powershell
+py -3.14 -m venv fsp_python_14_venv
+.\fsp_python_14_venv\Scripts\python.exe -m pip install --upgrade pip
+.\fsp_python_14_venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+
+# Run the tests from the repo root
+.\fsp_python_14_venv\Scripts\python.exe -m pytest
+```
+
+After upgrading any package, regenerate the lock with
+`.\fsp_python_14_venv\Scripts\python.exe -m pip freeze > requirements-lock.txt`.
+
 
 ### Licensing
 

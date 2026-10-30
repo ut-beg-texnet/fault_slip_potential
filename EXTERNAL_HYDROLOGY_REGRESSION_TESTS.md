@@ -19,7 +19,7 @@ The entry point is [`run_matlab_python_external_hydrology_regression.py`](run_ma
 
 ## Prerequisites
 
-- **Python 3.12.x** with this repo’s venv and `requirements.txt`
+- **Python 3.14.8** with this repo’s venv (`fsp_python_14_venv`) and `requirements-lock.txt`
 - **MATLAB R2012b** (the comparison driver is written for that release and legacy code requires this specific version)
 - A copy of the **legacy MATLAB FSP source** (this is not provided in this repository)
 
@@ -27,9 +27,9 @@ The entry point is [`run_matlab_python_external_hydrology_regression.py`](run_ma
 
 ```powershell
 cd C:\path\to\fsp_python
-python -m venv fsp_python_venv
-.\fsp_python_venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+py -3.14 -m venv fsp_python_14_venv
+.\fsp_python_14_venv\Scripts\Activate.ps1
+pip install -r requirements-lock.txt
 ```
 
 ### MATLAB FSP layout
@@ -70,7 +70,7 @@ The comparison interpolates **every snapshot year** that appears in the CSV (MAT
 From the repo root, with the venv activated (or using the venv’s `python.exe`):
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_external_hydrology_regression.py
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_external_hydrology_regression.py
 ```
 
 That uses the default MATLAB code (`reference_old_code`), default MATLAB executable, and default example CSVs that we use during testing. Those will be different on your machine and you need to provide the corresponding flags to overwrite them with your files/setup.
@@ -78,7 +78,7 @@ That uses the default MATLAB code (`reference_old_code`), default MATLAB executa
 ### Point at MATLAB source on another machine
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_external_hydrology_regression.py `
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_external_hydrology_regression.py `
   --matlab-code C:\path\to\matlab_fsp_root
 ```
 
@@ -87,7 +87,7 @@ That uses the default MATLAB code (`reference_old_code`), default MATLAB executa
 ### Other useful flags
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_external_hydrology_regression.py `
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_external_hydrology_regression.py `
   --matlab-executable "C:\Program Files\MATLAB\R2012b\bin\matlab.exe" `
   --matlab-code C:\path\to\matlab_fsp_root `
   --faults C:\path\to\faults.csv `

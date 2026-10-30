@@ -1,0 +1,20 @@
+# Exact lock of fsp_python_14_venv (Python 3.14.8, Windows x64). Regenerate with:
+#   .\fsp_python_14_venv\Scripts\python.exe -m pip freeze > requirements-lock.txt
+colorama==0.4.6
+iniconfig==2.3.0
+joblib==1.5.3
+llvmlite==0.47.0
+narwhals==2.21.2
+numba==0.65.1
+numpy==2.4.6
+packaging==26.2
+pandas==3.0.3
+plotly==6.7.0
+pluggy==1.6.0
+Pygments==2.20.0
+pyshp==3.0.9
+pytest==9.0.3
+python-dateutil==2.9.0.post0
+scipy==1.17.1
+six==1.17.0
+tzdata==2026.2

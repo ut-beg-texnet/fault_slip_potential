@@ -15,7 +15,7 @@ The entry point is [`run_matlab_python_geomechanics_regression.py`](run_matlab_p
 
 ## Prerequisites
 
-- **Python 3.12.x** with this repo’s venv and `requirements.txt`
+- **Python 3.14.8** with this repo’s venv (`fsp_python_14_venv`) and `requirements-lock.txt`
 - **MATLAB R2012b** (the comparison driver is written for that release and legacy code requires this specific version)
 - A copy of the **legacy MATLAB FSP source** (this is not provided in this repository)
 
@@ -23,9 +23,9 @@ The entry point is [`run_matlab_python_geomechanics_regression.py`](run_matlab_p
 
 ```powershell
 cd C:\path\to\fsp_python
-python -m venv fsp_python_venv
-.\fsp_python_venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+py -3.14 -m venv fsp_python_14_venv
+.\fsp_python_14_venv\Scripts\Activate.ps1
+pip install -r requirements-lock.txt
 ```
 
 ### MATLAB FSP layout
@@ -55,7 +55,7 @@ All faults use the same friction coefficient from `--friction-coefficient` (FSP 
 From the repo root, with the venv activated (or using the venv’s `python.exe`):
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py
 ```
 
 That uses the default MATLAB code (in our testing environment it's in a `reference_old_code` directory), default MATLAB executable, default example faults, and the default stress field (gradients). Those will be different on your machine and you need to provide the corresponding flags to overwrite them with your files/setup.
@@ -63,7 +63,7 @@ That uses the default MATLAB code (in our testing environment it's in a `referen
 ### Point at MATLAB source on another machine
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py `
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py `
   --matlab-code C:\path\to\matlab_fsp_root
 ```
 
@@ -72,7 +72,7 @@ That uses the default MATLAB code (in our testing environment it's in a `referen
 ### Other useful flags
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py `
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py `
   --matlab-executable "C:\Program Files\MATLAB\R2012b\bin\matlab.exe" `
   --matlab-code C:\path\to\matlab_fsp_root `
   --faults C:\path\to\faults.csv `
@@ -121,7 +121,7 @@ Optional Monte Carlo: `--mc-iterations` (default `0`) plus `--mc-uncertainty-jso
 Example:
 
 ```powershell
-.\fsp_python_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py `
+.\fsp_python_14_venv\Scripts\python.exe run_matlab_python_geomechanics_regression.py `
   --mc-iterations 100 `
   --mc-uncertainty-json '{"strike_angles_uncertainty": 10, "friction_coefficient_uncertainty": 0.05}'
 ```

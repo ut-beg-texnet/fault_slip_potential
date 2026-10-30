@@ -1,7 +1,7 @@
-"""Manual hydrology scale benchmark.
+r"""Manual hydrology scale benchmark.
 
 Run from the repository root:
-    .\fsp_python_venv\Scripts\python.exe tests\benchmark_hydrology_scale.py
+    .\fsp_python_14_venv\Scripts\python.exe tests\benchmark_hydrology_scale.py
 """
 import os
 import sys

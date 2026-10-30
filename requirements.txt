@@ -1,7 +1,11 @@
-numpy>=1.24.0
-pandas>=2.0.0
-scipy>=1.11.0
-numba>=0.59.0
-joblib>=1.3.0
-plotly>=5.18.0
-pyshp>=2.3.0
+# Python 3.14.8 — direct runtime/test dependencies (exact pins).
+# For an exact, fully reproducible install (incl. transitive deps) use requirements-lock.txt.
+numpy==2.4.6
+pandas==3.0.3
+scipy==1.17.1
+numba==0.65.1
+joblib==1.5.3
+plotly==6.7.0
+pyshp==3.0.9
+# Tests (tests/)
+pytest==9.0.3
