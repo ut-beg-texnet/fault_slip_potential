@@ -1,0 +1,4 @@
+# Dev-only dependencies for regression_testing/run_fsp_matlab_regression.py.
+# Not needed by the portal; kept out of requirements.txt / requirements-lock.txt.
+matplotlib==3.11.2
+pyproj==3.8.0

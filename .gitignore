@@ -15,3 +15,5 @@ examples/
 FSP_DEMO_TCEQ.md
 
 comparison_datasets/
+
+regression_testing/output/
