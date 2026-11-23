@@ -1,4 +1,4 @@
-# Python 3.14.8 — direct runtime/test dependencies (exact pins).
+# Python 3.14.10 — direct runtime/test dependencies (exact pins).
 # For an exact, fully reproducible install (incl. transitive deps) use requirements-lock.txt.
 numpy==2.4.6
 pandas==3.0.3

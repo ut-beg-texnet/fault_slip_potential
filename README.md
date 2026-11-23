@@ -24,7 +24,7 @@ FSP is a tool developed to screen faults near injection wells and estimate the p
 
 ### Requirements
 
-- **Python:** 3.14.8 (Windows x64)
+- **Python:** 3.14.10 (Windows x64)
 - **Packages:** `requirements.txt` pins the direct dependencies; `requirements-lock.txt` is the full `pip freeze` of the venv.
 
 The venv is named `fsp_python_14_venv` and lives at the repo root (it is git-ignored).
